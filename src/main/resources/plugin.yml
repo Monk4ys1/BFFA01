@@ -1,0 +1,21 @@
+name: BFFA01
+version: '2.1'
+main: infinode.org.example.bFFA01.BFFA01
+api-version: '1.21'
+commands:
+  bffa:
+    description: "Main command for BuildFFA"
+    usage: "/bffa"
+    permission: "bffa.admin"
+  stats:
+    description: "View your stats"
+    usage: "/stats"
+  shop:
+    description: "Open the upgrade shop"
+    usage: "/shop"
+  kit:
+    description: "Organize your kit"
+    usage: "/kit"
+  savekit:
+    description: "Save your current kit layout"
+    usage: "/savekit"
