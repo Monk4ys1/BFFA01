@@ -44,24 +44,43 @@ public class KitManager {
                     
                     if (material != null) {
                         ItemStack item = new ItemStack(material, amount);
+                        ItemMeta meta = item.getItemMeta();
                         
-                        // Check for permanent Sharpness upgrade
-                        if (material == Material.IRON_SWORD && plugin.getDataManager().hasUpgrade(uuid, "sharpness")) {
-                            ItemMeta meta = item.getItemMeta();
-                            if (meta != null) {
+                        if (meta != null) {
+                            // Check for permanent Sharpness upgrade
+                            if (material == Material.IRON_SWORD && plugin.getDataManager().hasUpgrade(uuid, "sharpness")) {
                                 meta.addEnchant(Enchantment.SHARPNESS, 1, true);
-                                item.setItemMeta(meta);
                             }
+
+                            // Check for permanent Power upgrade
+                            if (material == Material.BOW && plugin.getDataManager().hasUpgrade(uuid, "powerbow")) {
+                                meta.addEnchant(Enchantment.POWER, 1, true);
+                            }
+
+                            // Check for permanent Punch upgrade
+                            if (material == Material.BOW && plugin.getDataManager().hasUpgrade(uuid, "punchbow")) {
+                                meta.addEnchant(Enchantment.PUNCH, 1, true);
+                            }
+
+                            // Check for permanent Knockback 2 Stick
+                            if (material == Material.STICK && plugin.getDataManager().hasUpgrade(uuid, "knockback2")) {
+                                meta.addEnchant(Enchantment.KNOCKBACK, 2, true);
+                            }
+
+                            item.setItemMeta(meta);
                         }
 
                         ConfigurationSection enchants = invConfig.getConfigurationSection(key + ".enchantments");
                         if (enchants != null) {
-                            ItemMeta meta = item.getItemMeta();
+                            meta = item.getItemMeta();
                             if (meta != null) {
                                 for (String enchantName : enchants.getKeys(false)) {
                                     Enchantment enchantment = Enchantment.getByName(enchantName.toUpperCase());
                                     if (enchantment != null) {
-                                        meta.addEnchant(enchantment, enchants.getInt(enchantName), true);
+                                        // Don't overwrite if we already applied a stronger upgrade
+                                        if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < enchants.getInt(enchantName)) {
+                                            meta.addEnchant(enchantment, enchants.getInt(enchantName), true);
+                                        }
                                     }
                                 }
                                 item.setItemMeta(meta);
@@ -101,15 +120,38 @@ public class KitManager {
         // Give armor
         ConfigurationSection armorConfig = kitConfig.getConfigurationSection("armor");
         if (armorConfig != null) {
-            Material helmet = Material.matchMaterial(armorConfig.getString("helmet.material", "AIR"));
-            Material chestplate = Material.matchMaterial(armorConfig.getString("chestplate.material", "AIR"));
-            Material leggings = Material.matchMaterial(armorConfig.getString("leggings.material", "AIR"));
-            Material boots = Material.matchMaterial(armorConfig.getString("boots.material", "AIR"));
+            Material helmetMat = Material.matchMaterial(armorConfig.getString("helmet.material", "AIR"));
+            Material chestplateMat = Material.matchMaterial(armorConfig.getString("chestplate.material", "AIR"));
+            Material leggingsMat = Material.matchMaterial(armorConfig.getString("leggings.material", "AIR"));
+            Material bootsMat = Material.matchMaterial(armorConfig.getString("boots.material", "AIR"));
 
-            if (helmet != null && helmet != Material.AIR) inventory.setHelmet(new ItemStack(helmet));
-            if (chestplate != null && chestplate != Material.AIR) inventory.setChestplate(new ItemStack(chestplate));
-            if (leggings != null && leggings != Material.AIR) inventory.setLeggings(new ItemStack(leggings));
-            if (boots != null && boots != Material.AIR) inventory.setBoots(new ItemStack(boots));
+            ItemStack helmet = helmetMat != null && helmetMat != Material.AIR ? new ItemStack(helmetMat) : null;
+            ItemStack chestplate = chestplateMat != null && chestplateMat != Material.AIR ? new ItemStack(chestplateMat) : null;
+            ItemStack leggings = leggingsMat != null && leggingsMat != Material.AIR ? new ItemStack(leggingsMat) : null;
+            ItemStack boots = bootsMat != null && bootsMat != Material.AIR ? new ItemStack(bootsMat) : null;
+
+            // Check for Protection 1 Chestplate
+            if (chestplate != null && plugin.getDataManager().hasUpgrade(uuid, "protection")) {
+                ItemMeta meta = chestplate.getItemMeta();
+                if (meta != null) {
+                    meta.addEnchant(Enchantment.PROTECTION, 1, true);
+                    chestplate.setItemMeta(meta);
+                }
+            }
+
+            // Check for Feather Falling 2 Boots
+            if (boots != null && plugin.getDataManager().hasUpgrade(uuid, "featherfalling")) {
+                ItemMeta meta = boots.getItemMeta();
+                if (meta != null) {
+                    meta.addEnchant(Enchantment.FEATHER_FALLING, 2, true);
+                    boots.setItemMeta(meta);
+                }
+            }
+
+            inventory.setHelmet(helmet);
+            inventory.setChestplate(chestplate);
+            inventory.setLeggings(leggings);
+            inventory.setBoots(boots);
         }
 
         player.updateInventory();

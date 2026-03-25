@@ -42,7 +42,21 @@ public class GameListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        
+        // Custom Join Message
+        String joinMsg = plugin.getConfig().getString("messages.join", "&8[&a+&8] &7%player%");
+        event.setJoinMessage(ChatColor.translateAlternateColorCodes('&', joinMsg.replace("%player%", player.getName())));
+
         plugin.getMapManager().teleportToCurrentSpawn(player);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        
+        // Custom Quit Message
+        String quitMsg = plugin.getConfig().getString("messages.quit", "&8[&c-&8] &7%player%");
+        event.setQuitMessage(ChatColor.translateAlternateColorCodes('&', quitMsg.replace("%player%", player.getName())));
     }
 
     @EventHandler
