@@ -38,6 +38,7 @@ public class GameListener implements Listener {
     private final List<Block> placedBlocks;
     private final Map<UUID, Boolean> vampireFangActive = new HashMap<>();
     private final Map<UUID, Long> lastCombatTime = new HashMap<>();
+    private final Map<UUID, UUID> lastDamager = new HashMap<>();
 
     public GameListener(BFFA01 plugin) {
         this.plugin = plugin;
@@ -76,6 +77,9 @@ public class GameListener implements Listener {
                         double remainingSeconds = remainingMillis / 1000.0;
                         String message = ChatColor.RED + "In combat: " + ChatColor.YELLOW + String.format("%.1f", remainingSeconds) + "s";
                         player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+                    } else {
+                        // Clear combat tracking if it expired to avoid old damagers counting
+                        lastDamager.remove(player.getUniqueId());
                     }
                 }
 
@@ -123,11 +127,10 @@ public class GameListener implements Listener {
 
         Map<String, Boolean> inCombatByName = new HashMap<>();
         for (Player p : online) {
-            inCombatByName.put(p.getName(), isPlayerInCombat(p, now, pauseMillis));
-        }
-
-        for (Player p : online) {
-            boolean inCombat = inCombatByName.get(p.getName());
+            boolean inCombat = isPlayerInCombat(p, now, pauseMillis);
+            inCombatByName.put(p.getName(), inCombat);
+            
+            // Tablist format
             if (inCombat) {
                 p.setPlayerListName(ChatColor.RED + p.getName());
             } else {
@@ -142,6 +145,7 @@ public class GameListener implements Listener {
             }
             Team combatTeam = getOrCreateColoredTeam(board, "combat_red", ChatColor.RED);
             Team safeTeam = getOrCreateColoredTeam(board, "combat_safe", ChatColor.GREEN);
+            
             for (Player target : online) {
                 String name = target.getName();
                 boolean inCombat = inCombatByName.get(name);
@@ -193,9 +197,47 @@ public class GameListener implements Listener {
             }
         }
 
+        // Handle Combat Logging
+        long now = System.currentTimeMillis();
+        int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+        long pauseMillis = combatPauseSeconds * 1000L;
+        
+        if (isPlayerInCombat(player, now, pauseMillis)) {
+            UUID damagerId = lastDamager.get(player.getUniqueId());
+            if (damagerId != null) {
+                Player killer = Bukkit.getPlayer(damagerId);
+                if (killer != null && killer.isOnline() && !killer.equals(player)) {
+                    // Credit kill to the last person who hit them
+                    plugin.getDataManager().addKill(killer.getUniqueId());
+                    plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
+                    plugin.getKillstreakManager().addKill(killer);
+                    
+                    String prefix = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] "));
+                    String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &a%killer%&7.");
+                    String translated = ChatColor.translateAlternateColorCodes('&', killMessage.replace("%player%", player.getName()).replace("%killer%", killer.getName()));
+                    Bukkit.broadcastMessage(prefix + translated);
+                    
+                    killer.setHealth(killer.getMaxHealth());
+                    giveKillRewards(killer);
+                }
+            }
+
+            // Temp ban the player for logging out in combat
+            Bukkit.getBanList(org.bukkit.BanList.Type.NAME).addBan(
+                    player.getName(),
+                    ChatColor.RED + "You were temporarily banned for Combat Logging.",
+                    new java.util.Date(now + (5 * 60 * 1000L)), // 5 Minutes from now
+                    "BuildFFA System"
+            );
+            
+            plugin.getDataManager().addDeath(player.getUniqueId());
+            plugin.getKillstreakManager().resetStreak(player);
+        }
+
         // Memory Leak Prevention: Clean up maps
         vampireFangActive.remove(player.getUniqueId());
         lastCombatTime.remove(player.getUniqueId());
+        lastDamager.remove(player.getUniqueId());
 
         // Custom Quit Message
         String quitMsg = plugin.getConfig().getString("messages.quit", "&8[&c-&8] &7%player%");
@@ -304,6 +346,9 @@ public class GameListener implements Listener {
                 long now = System.currentTimeMillis();
                 lastCombatTime.put(victim.getUniqueId(), now);
                 lastCombatTime.put(damager.getUniqueId(), now);
+                
+                // Track who hit the victim last for combat logging
+                lastDamager.put(victim.getUniqueId(), damager.getUniqueId());
 
                 // Vampire Fang Logic
                 if (vampireFangActive.getOrDefault(damager.getUniqueId(), false)) {
@@ -348,6 +393,7 @@ public class GameListener implements Listener {
         
         // Remove from combat tag on death
         lastCombatTime.remove(dead.getUniqueId());
+        lastDamager.remove(dead.getUniqueId());
         syncCombatNameDisplays(System.currentTimeMillis(), plugin.getConfig().getInt("combat-regen-pause", 10) * 1000L);
 
         if (killer != null && !killer.equals(dead)) {
