@@ -175,6 +175,13 @@ public class GameListener implements Listener {
     }
 
     @EventHandler
+    public void onPlayerLogin(PlayerLoginEvent event) {
+        // Since we unban them immediately, this allows them to join right back.
+        // We catch them here just in case Bukkit hasn't processed the unban yet
+        // but normally it's fast enough. We don't need to do anything special.
+    }
+
+    @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         String name = player.getName();
@@ -201,6 +208,7 @@ public class GameListener implements Listener {
         long now = System.currentTimeMillis();
         int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
         long pauseMillis = combatPauseSeconds * 1000L;
+        String prefix = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] "));
         
         if (isPlayerInCombat(player, now, pauseMillis)) {
             UUID damagerId = lastDamager.get(player.getUniqueId());
@@ -212,7 +220,6 @@ public class GameListener implements Listener {
                     plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
                     plugin.getKillstreakManager().addKill(killer);
                     
-                    String prefix = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] "));
                     String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &a%killer%&7.");
                     String translated = ChatColor.translateAlternateColorCodes('&', killMessage.replace("%player%", player.getName()).replace("%killer%", killer.getName()));
                     Bukkit.broadcastMessage(prefix + translated);
@@ -221,20 +228,37 @@ public class GameListener implements Listener {
                     giveKillRewards(killer);
                 }
             }
-
-            // Temp ban the player for logging out in combat
-            Bukkit.getBanList(org.bukkit.BanList.Type.NAME).addBan(
-                    player.getName(),
-                    ChatColor.RED + "You were temporarily banned for Combat Logging.",
-                    new java.util.Date(now + (5 * 60 * 1000L)), // 5 Minutes from now
-                    "BuildFFA System"
-            );
             
             plugin.getDataManager().addDeath(player.getUniqueId());
             plugin.getKillstreakManager().resetStreak(player);
+
+            // Memory Leak Prevention BEFORE the kick delay logic to ensure it runs
+            vampireFangActive.remove(player.getUniqueId());
+            lastCombatTime.remove(player.getUniqueId());
+            lastDamager.remove(player.getUniqueId());
+
+            // To ensure the "You have been kicked" message shows on their disconnect screen,
+            // we will quickly ban them and immediately unban them. We do this asynchronously to
+            // not block the main thread and allow them to reconnect quickly.
+            String banReason = ChatColor.RED + "You have been kicked for Combat Logging.\nYour attacker was awarded the kill.";
+            Bukkit.getBanList(org.bukkit.BanList.Type.NAME).addBan(
+                    player.getName(),
+                    banReason,
+                    new java.util.Date(now + 2000L), // 2 seconds
+                    "BuildFFA System"
+            );
+
+            // Pardon them almost immediately
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                Bukkit.getBanList(org.bukkit.BanList.Type.NAME).pardon(player.getName());
+            }, 10L); // 0.5s later
+            
+            // Since they are combat logging, we don't want to broadcast the normal quit message
+            event.setQuitMessage(null);
+            return;
         }
 
-        // Memory Leak Prevention: Clean up maps
+        // Normal Quit Clean up maps
         vampireFangActive.remove(player.getUniqueId());
         lastCombatTime.remove(player.getUniqueId());
         lastDamager.remove(player.getUniqueId());
@@ -242,6 +266,21 @@ public class GameListener implements Listener {
         // Custom Quit Message
         String quitMsg = plugin.getConfig().getString("messages.quit", "&8[&c-&8] &7%player%");
         event.setQuitMessage(ChatColor.translateAlternateColorCodes('&', quitMsg.replace("%player%", player.getName())));
+    }
+
+    @EventHandler
+    public void onPlayerCommandPreprocess(PlayerCommandPreprocessEvent event) {
+        Player player = event.getPlayer();
+        long now = System.currentTimeMillis();
+        int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+        long pauseMillis = combatPauseSeconds * 1000L;
+        
+        // Prevent leaving during combat via commands like /hub, /spawn, /leave etc.
+        // We will just block ALL commands during combat for safety.
+        if (isPlayerInCombat(player, now, pauseMillis)) {
+            event.setCancelled(true);
+            player.sendMessage(ChatColor.RED + "You cannot use commands while in combat!");
+        }
     }
 
     @EventHandler
