@@ -55,6 +55,7 @@ public class ScoreboardManager {
 
     public void updateScoreboard(Player player) {
         Scoreboard board = player.getScoreboard();
+        if (board == null) return;
         Objective obj = board.getObjective("bffa");
         if (obj == null) return;
 

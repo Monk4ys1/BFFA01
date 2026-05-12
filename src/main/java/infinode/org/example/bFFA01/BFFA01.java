@@ -2,7 +2,6 @@ package infinode.org.example.bFFA01;
 
 import infinode.org.example.bFFA01.commands.*;
 import infinode.org.example.bFFA01.listeners.GameListener;
-import infinode.org.example.bFFA01.listeners.ShopListener;
 import infinode.org.example.bFFA01.managers.*;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -13,7 +12,8 @@ public final class BFFA01 extends JavaPlugin {
     private MapManager mapManager;
     private DataManager dataManager;
     private KillstreakManager killstreakManager;
-    private HologramManager hologramManager;
+    private ScoreboardManager scoreboardManager;
+    private GameListener gameListener;
 
     @Override
     public void onEnable() {
@@ -22,21 +22,19 @@ public final class BFFA01 extends JavaPlugin {
 
         dataManager = new DataManager(this);
         killstreakManager = new KillstreakManager();
-        hologramManager = new HologramManager(this);
         kitManager = new KitManager(this);
-        mapManager = new MapManager(this);
+        
+        gameListener = new GameListener(this);
+        mapManager = new MapManager(this); // MapManager needs GameListener initialized first for clearAllBlocks
+        scoreboardManager = new ScoreboardManager(this);
 
-        getServer().getPluginManager().registerEvents(new GameListener(this), this);
-        getServer().getPluginManager().registerEvents(new ShopListener(this), this);
+        getServer().getPluginManager().registerEvents(gameListener, this);
 
         PluginCommand bffaCmd = getCommand("bffa");
         if (bffaCmd != null) bffaCmd.setExecutor(new BuildFFAAdminCommand(this));
 
         PluginCommand statsCmd = getCommand("stats");
         if (statsCmd != null) statsCmd.setExecutor(new StatsCommand(this));
-
-        PluginCommand shopCmd = getCommand("shop");
-        if (shopCmd != null) shopCmd.setExecutor(new ShopCommand(this));
 
         PluginCommand kitCmd = getCommand("kit");
         if (kitCmd != null) kitCmd.setExecutor(new KitEditorCommand(this));
@@ -56,5 +54,6 @@ public final class BFFA01 extends JavaPlugin {
     public MapManager getMapManager() { return mapManager; }
     public DataManager getDataManager() { return dataManager; }
     public KillstreakManager getKillstreakManager() { return killstreakManager; }
-    public HologramManager getHologramManager() { return hologramManager; }
+    public ScoreboardManager getScoreboardManager() { return scoreboardManager; }
+    public GameListener getGameListener() { return gameListener; }
 }

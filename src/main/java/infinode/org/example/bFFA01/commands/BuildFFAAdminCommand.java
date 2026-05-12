@@ -118,8 +118,16 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                 break;
                 
             case "swapmap":
-                plugin.getMapManager().swapMap();
-                sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap.");
+                if (args.length == 1) {
+                    plugin.getMapManager().forceSwapSequence(null);
+                    sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap. Sequence initiated (3 seconds).");
+                } else if (args.length == 2) {
+                    String targetMap = args[1];
+                    plugin.getMapManager().forceSwapSequence(targetMap);
+                    sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap to '" + targetMap + "'. Sequence initiated (3 seconds).");
+                } else {
+                    sender.sendMessage(prefix + ChatColor.RED + "Usage: /bffa swapmap [mapname]");
+                }
                 break;
 
             default:
@@ -136,6 +144,6 @@ public class BuildFFAAdminCommand implements CommandExecutor {
         sender.sendMessage(ChatColor.AQUA + "/bffa addcoins <player> <amount>" + ChatColor.GRAY + " - Give coins");
         sender.sendMessage(ChatColor.AQUA + "/bffa removecoins <player> <amount>" + ChatColor.GRAY + " - Remove coins");
         sender.sendMessage(ChatColor.AQUA + "/bffa resetstats <player>" + ChatColor.GRAY + " - Reset kills/deaths");
-        sender.sendMessage(ChatColor.AQUA + "/bffa swapmap" + ChatColor.GRAY + " - Force swap map");
+        sender.sendMessage(ChatColor.AQUA + "/bffa swapmap [name]" + ChatColor.GRAY + " - Force swap map (with 3s sequence)");
     }
 }

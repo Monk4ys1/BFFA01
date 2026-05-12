@@ -1,5 +1,5 @@
 name: BFFA01
-version: '2.5'
+version: '3.4'
 main: infinode.org.example.bFFA01.BFFA01
 api-version: '1.21'
 commands:
@@ -10,9 +10,6 @@ commands:
   stats:
     description: "View your stats"
     usage: "/stats"
-  shop:
-    description: "Open the upgrade shop"
-    usage: "/shop"
   kit:
     description: "Organize your kit"
     usage: "/kit"

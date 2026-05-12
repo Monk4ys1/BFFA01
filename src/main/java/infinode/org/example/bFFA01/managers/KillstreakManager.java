@@ -43,4 +43,8 @@ public class KillstreakManager {
         }
         streaks.put(uuid, 0);
     }
+
+    public int getStreak(Player player) {
+        return streaks.getOrDefault(player.getUniqueId(), 0);
+    }
 }

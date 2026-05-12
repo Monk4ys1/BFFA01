@@ -1,33 +1,47 @@
 # BuildFFA Configuration
 
 # The time in seconds between map swaps
-map-swap-interval: 300
+map-swap-interval: 600
 
 # The time in seconds before placed blocks disappear
 block-remove-delay: 10
 
-# Safe Y level: below this, players are considered dead (fall to void)
-death-y-level: 55
+# The time in seconds that natural regeneration is paused after taking damage from a player
+combat-regen-pause: 10
 
-# Safezone Y level: above this, players are invulnerable
-safezone-y-level: 188
+# Default fall Y-level and safezone (used if a map doesn't specify one)
+default-death-y-level: 50
+default-safezone-y-level: 90
 
 # The name of the maps and their spawn locations. You can add more maps here.
 maps:
-  classic:
+  basketball:
     world: "world"
-    x: 24.5
-    y: 195.0
-    z: -80.5
+    x: 38.5
+    y: 201.0
+    z: 0.5
     yaw: 0.0
     pitch: 0.0
-  desert:
+    death-y-level: 85
+    safezone-y-level: 190
+  challenger:
     world: "world"
-    x: 24.5
-    y: 195.0
-    z: -80.5
+    x: -55.5
+    y: 204.0
+    z: -495.0
     yaw: 0.0
     pitch: 0.0
+    death-y-level: 135
+    safezone-y-level: 190
+  mariokart:
+    world: "world"
+    x: 13.5
+    y: 239.0
+    z: 665.0
+    yaw: 0.0
+    pitch: 0.0
+    death-y-level: 162
+    safezone-y-level: 232
 
 # Kit configuration
 kit:
@@ -35,6 +49,8 @@ kit:
     0:
       material: IRON_SWORD
       amount: 1
+      enchantments:
+        SHARPNESS: 1
     1:
       material: STICK
       amount: 1
@@ -48,16 +64,16 @@ kit:
       amount: 1
     8:
       material: ARROW
-      amount: 64
+      amount: 16
   armor:
     helmet:
-      material: CHAINMAIL_HELMET
+      material: IRON_HELMET
     chestplate:
-      material: CHAINMAIL_CHESTPLATE
+      material: IRON_CHESTPLATE
     leggings:
-      material: CHAINMAIL_LEGGINGS
+      material: IRON_LEGGINGS
     boots:
-      material: CHAINMAIL_BOOTS
+      material: IRON_BOOTS
 
 messages:
   prefix: "&8[&bBuildFFA&8] "
@@ -65,7 +81,7 @@ messages:
   quit: "&8[&c-&8] &7%player%"
   map-swapped: "&7The map has been changed to &e%map%&7!"
   map-swap-warning: "&7The map will change in &e%seconds% &7seconds!"
-  player-killed: "&c%player% &7was killed by &c%killer%&7."
+  player-killed: "&c%player% &7was killed by &a%killer%&7."
   player-died: "&c%player% &7died."
   command-usage: "&cUsage: /bffa <setmap> <mapname>"
   no-permission: "&cYou do not have permission to do that."
