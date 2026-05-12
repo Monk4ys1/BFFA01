@@ -1,6 +1,8 @@
 package infinode.org.example.bFFA01.listeners;
 
 import infinode.org.example.bFFA01.BFFA01;
+import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -20,6 +22,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -33,10 +37,125 @@ public class GameListener implements Listener {
     private final BFFA01 plugin;
     private final List<Block> placedBlocks;
     private final Map<UUID, Boolean> vampireFangActive = new HashMap<>();
+    private final Map<UUID, Long> lastCombatTime = new HashMap<>();
 
     public GameListener(BFFA01 plugin) {
         this.plugin = plugin;
         this.placedBlocks = new ArrayList<>();
+        startActionbarTask();
+    }
+
+    public void clearAllBlocks() {
+        for (Block block : placedBlocks) {
+            block.setType(Material.AIR);
+        }
+        placedBlocks.clear();
+    }
+
+    private int getMapSetting(String key, int fallbackKey) {
+        String mapName = plugin.getMapManager().getCurrentMap();
+        int fallback = plugin.getConfig().getInt(fallbackKey == 0 ? "default-death-y-level" : "default-safezone-y-level", fallbackKey);
+        if (mapName != null && plugin.getConfig().contains("maps." + mapName + "." + key)) {
+            return plugin.getConfig().getInt("maps." + mapName + "." + key);
+        }
+        return fallback;
+    }
+
+    private void startActionbarTask() {
+        BukkitRunnable actionbarTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+                long pauseMillis = combatPauseSeconds * 1000L;
+                long now = System.currentTimeMillis();
+
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (isPlayerInCombat(player, now, pauseMillis)) {
+                        long lastCombat = lastCombatTime.get(player.getUniqueId());
+                        long remainingMillis = pauseMillis - (now - lastCombat);
+                        double remainingSeconds = remainingMillis / 1000.0;
+                        String message = ChatColor.RED + "In combat: " + ChatColor.YELLOW + String.format("%.1f", remainingSeconds) + "s";
+                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+                    }
+                }
+
+                syncCombatNameDisplays(now, pauseMillis);
+            }
+        };
+        actionbarTask.runTaskTimer(plugin, 2L, 2L); // Run every 2 ticks (0.1s) for smooth updates
+    }
+
+    private boolean isPlayerInCombat(Player player, long now, long pauseMillis) {
+        int safezoneY = getMapSetting("safezone-y-level", 90);
+        if (player.getLocation().getY() >= safezoneY) {
+            return false;
+        }
+        if (!lastCombatTime.containsKey(player.getUniqueId())) {
+            return false;
+        }
+        long lastCombat = lastCombatTime.get(player.getUniqueId());
+        return (now - lastCombat) < pauseMillis;
+    }
+
+    private Team getOrCreateColoredTeam(Scoreboard board, String teamId, ChatColor color) {
+        Team existing = board.getTeam(teamId);
+        if (existing != null) {
+            return existing;
+        }
+        Team team = board.registerNewTeam(teamId);
+        try {
+            team.setColor(color);
+        } catch (NoSuchMethodError e) {
+            team.setPrefix(color.toString());
+        }
+        return team;
+    }
+
+    /**
+     * Tab list names and nametag team colors: red in combat, green otherwise.
+     * Each viewer's scoreboard gets team entries for every online player so colors are visible to all.
+     */
+    private void syncCombatNameDisplays(long now, long pauseMillis) {
+        List<Player> online = new ArrayList<>(Bukkit.getOnlinePlayers());
+        if (online.isEmpty()) {
+            return;
+        }
+
+        Map<String, Boolean> inCombatByName = new HashMap<>();
+        for (Player p : online) {
+            inCombatByName.put(p.getName(), isPlayerInCombat(p, now, pauseMillis));
+        }
+
+        for (Player p : online) {
+            boolean inCombat = inCombatByName.get(p.getName());
+            if (inCombat) {
+                p.setPlayerListName(ChatColor.RED + p.getName());
+            } else {
+                p.setPlayerListName(ChatColor.GREEN + p.getName());
+            }
+        }
+
+        for (Player viewer : online) {
+            Scoreboard board = viewer.getScoreboard();
+            if (board == null) {
+                continue;
+            }
+            Team combatTeam = getOrCreateColoredTeam(board, "combat_red", ChatColor.RED);
+            Team safeTeam = getOrCreateColoredTeam(board, "combat_safe", ChatColor.GREEN);
+            for (Player target : online) {
+                String name = target.getName();
+                boolean inCombat = inCombatByName.get(name);
+                if (inCombat) {
+                    if (!combatTeam.hasEntry(name)) {
+                        combatTeam.addEntry(name);
+                    }
+                } else {
+                    if (!safeTeam.hasEntry(name)) {
+                        safeTeam.addEntry(name);
+                    }
+                }
+            }
+        }
     }
 
     @EventHandler
@@ -48,12 +167,36 @@ public class GameListener implements Listener {
         event.setJoinMessage(ChatColor.translateAlternateColorCodes('&', joinMsg.replace("%player%", player.getName())));
 
         plugin.getMapManager().teleportToCurrentSpawn(player);
+        plugin.getScoreboardManager().setScoreboard(player);
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        
+        String name = player.getName();
+
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.getUniqueId().equals(player.getUniqueId())) {
+                continue;
+            }
+            Scoreboard board = other.getScoreboard();
+            if (board == null) {
+                continue;
+            }
+            Team red = board.getTeam("combat_red");
+            if (red != null) {
+                red.removeEntry(name);
+            }
+            Team safe = board.getTeam("combat_safe");
+            if (safe != null) {
+                safe.removeEntry(name);
+            }
+        }
+
+        // Memory Leak Prevention: Clean up maps
+        vampireFangActive.remove(player.getUniqueId());
+        lastCombatTime.remove(player.getUniqueId());
+
         // Custom Quit Message
         String quitMsg = plugin.getConfig().getString("messages.quit", "&8[&c-&8] &7%player%");
         event.setQuitMessage(ChatColor.translateAlternateColorCodes('&', quitMsg.replace("%player%", player.getName())));
@@ -61,10 +204,16 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
+        if (plugin.getMapManager().isSwapping()) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(ChatColor.RED + "You cannot place blocks while the map is swapping!");
+            return;
+        }
+
         Player player = event.getPlayer();
         Block block = event.getBlockPlaced();
 
-        int safezoneY = plugin.getConfig().getInt("safezone-y-level", 90);
+        int safezoneY = getMapSetting("safezone-y-level", 90);
         if (player.getLocation().getY() >= safezoneY) {
             event.setCancelled(true);
             return;
@@ -104,7 +253,7 @@ public class GameListener implements Listener {
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
-        int safeY = plugin.getConfig().getInt("death-y-level", 50);
+        int safeY = getMapSetting("death-y-level", 50);
 
         if (player.getLocation().getY() < safeY) {
             if (player.getHealth() > 0 && !player.isDead()) {
@@ -123,7 +272,7 @@ public class GameListener implements Listener {
                 return;
             }
 
-            int safezoneY = plugin.getConfig().getInt("safezone-y-level", 90);
+            int safezoneY = getMapSetting("safezone-y-level", 90);
             if (player.getLocation().getY() >= safezoneY) {
                 event.setCancelled(true);
             }
@@ -132,15 +281,37 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player && event.getEntity() instanceof Player) {
-            Player damager = (Player) event.getDamager();
+        if (event.getEntity() instanceof Player) {
+            Player victim = (Player) event.getEntity();
+            Player damager = null;
+            
+            if (event.getDamager() instanceof Player) {
+                damager = (Player) event.getDamager();
+            } else if (event.getDamager() instanceof Projectile) {
+                Projectile proj = (Projectile) event.getDamager();
+                if (proj.getShooter() instanceof Player) {
+                    damager = (Player) proj.getShooter();
+                }
+            }
 
-            // Vampire Fang Logic
-            if (vampireFangActive.getOrDefault(damager.getUniqueId(), false)) {
-                damager.setHealth(damager.getMaxHealth());
-                damager.playSound(damager.getLocation(), Sound.ENTITY_WITCH_DRINK, 1.0f, 1.0f);
-                damager.sendMessage(ChatColor.DARK_RED + "Vampire Fang activated! You stole their life!");
-                vampireFangActive.put(damager.getUniqueId(), false);
+            int safezoneY = getMapSetting("safezone-y-level", 90);
+            if (victim.getLocation().getY() >= safezoneY) {
+                return; // Combat cooldown doesn't apply above safezone
+            }
+
+            if (damager != null && !damager.equals(victim)) {
+                // Update combat time for both players
+                long now = System.currentTimeMillis();
+                lastCombatTime.put(victim.getUniqueId(), now);
+                lastCombatTime.put(damager.getUniqueId(), now);
+
+                // Vampire Fang Logic
+                if (vampireFangActive.getOrDefault(damager.getUniqueId(), false)) {
+                    damager.setHealth(damager.getMaxHealth());
+                    damager.playSound(damager.getLocation(), Sound.ENTITY_WITCH_DRINK, 1.0f, 1.0f);
+                    damager.sendMessage(ChatColor.DARK_RED + "Vampire Fang activated! You stole their life!");
+                    vampireFangActive.put(damager.getUniqueId(), false);
+                }
             }
         }
 
@@ -158,6 +329,12 @@ public class GameListener implements Listener {
     }
 
     @EventHandler
+    public void onItemDamage(PlayerItemDamageEvent event) {
+        // Prevent armor and weapons from losing durability
+        event.setCancelled(true);
+    }
+
+    @EventHandler
     public void onDeath(PlayerDeathEvent event) {
         event.getDrops().clear();
         event.setDroppedExp(0);
@@ -168,18 +345,25 @@ public class GameListener implements Listener {
 
         plugin.getDataManager().addDeath(dead.getUniqueId());
         plugin.getKillstreakManager().resetStreak(dead);
+        
+        // Remove from combat tag on death
+        lastCombatTime.remove(dead.getUniqueId());
+        syncCombatNameDisplays(System.currentTimeMillis(), plugin.getConfig().getInt("combat-regen-pause", 10) * 1000L);
 
         if (killer != null && !killer.equals(dead)) {
             plugin.getDataManager().addKill(killer.getUniqueId());
             plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
             plugin.getKillstreakManager().addKill(killer);
             
-            String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &c%killer%&7.");
+            String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &a%killer%&7.");
             String translated = ChatColor.translateAlternateColorCodes('&', killMessage.replace("%player%", dead.getName()).replace("%killer%", killer.getName()));
             event.setDeathMessage(prefix + translated);
             
             killer.setHealth(killer.getMaxHealth());
-            killer.sendMessage(ChatColor.GOLD + "+5 Coins");
+
+            // Give blocks and reset arrows on kill
+            giveKillRewards(killer);
+
         } else {
             String deathMessage = plugin.getConfig().getString("messages.player-died", "&c%player% &7died.");
             String translated = ChatColor.translateAlternateColorCodes('&', deathMessage.replace("%player%", dead.getName()));
@@ -191,6 +375,51 @@ public class GameListener implements Listener {
                 dead.spigot().respawn();
             }
         }, 5L);
+    }
+
+    private void giveKillRewards(Player player) {
+        // Find default arrow amount from config
+        int defaultArrows = 0;
+        Material blockMat = Material.SANDSTONE; // fallback
+
+        if (plugin.getConfig().contains("kit.inventory")) {
+            for (String key : plugin.getConfig().getConfigurationSection("kit.inventory").getKeys(false)) {
+                String matStr = plugin.getConfig().getString("kit.inventory." + key + ".material");
+                if (matStr != null && matStr.equals("ARROW")) {
+                    defaultArrows = plugin.getConfig().getInt("kit.inventory." + key + ".amount", 64);
+                } else if (matStr != null && (matStr.contains("STONE") || matStr.contains("BLOCK") || matStr.contains("WOOD") || matStr.contains("PLANKS"))) {
+                    blockMat = Material.matchMaterial(matStr);
+                    if (blockMat == null) blockMat = Material.SANDSTONE;
+                }
+            }
+        }
+
+        boolean foundArrows = false;
+        boolean foundBlocks = false;
+
+        for (int i = 0; i < player.getInventory().getSize(); i++) {
+            ItemStack item = player.getInventory().getItem(i);
+            if (item != null) {
+                if (item.getType() == Material.ARROW) {
+                    item.setAmount(defaultArrows);
+                    foundArrows = true;
+                } else if (item.getType() == blockMat) {
+                    int newAmt = Math.min(64, item.getAmount() + 16);
+                    item.setAmount(newAmt);
+                    foundBlocks = true;
+                }
+            }
+        }
+
+        // If they ran completely out of arrows or blocks, we need to add them anew.
+        if (!foundArrows && defaultArrows > 0) {
+            player.getInventory().addItem(new ItemStack(Material.ARROW, defaultArrows));
+        }
+        if (!foundBlocks) {
+            player.getInventory().addItem(new ItemStack(blockMat, 16));
+        }
+        
+        player.updateInventory();
     }
 
     @EventHandler
@@ -207,12 +436,23 @@ public class GameListener implements Listener {
     }
 
     @EventHandler
+    public void onSwapHandItems(PlayerSwapHandItemsEvent event) {
+        event.setCancelled(true);
+    }
+
+    @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getView().getTitle().equals("Shop & Upgrades")) return;
 
+        // Prevent putting items in the offhand slot directly or via shortcut
+        if (event.getSlot() == 40 || event.getClick().toString().equals("SWAP_OFFHAND")) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (event.getWhoClicked() instanceof Player) {
             Player player = (Player) event.getWhoClicked();
-            int safezoneY = plugin.getConfig().getInt("safezone-y-level", 90);
+            int safezoneY = getMapSetting("safezone-y-level", 90);
             if (player.getLocation().getY() < safezoneY) {
                 event.setCancelled(true);
             }
@@ -258,8 +498,26 @@ public class GameListener implements Listener {
     @EventHandler
     public void onHealthRegain(EntityRegainHealthEvent event) {
         if (event.getEntity() instanceof Player) {
-            if (event.getRegainReason() == EntityRegainHealthEvent.RegainReason.SATIATED) {
-                event.setCancelled(true);
+            Player player = (Player) event.getEntity();
+            
+            int safezoneY = getMapSetting("safezone-y-level", 90);
+            if (player.getLocation().getY() >= safezoneY) {
+                return; // Allow natural regeneration in safezone
+            }
+
+            // Only cancel natural regeneration (satiated/magic regen like golden apples etc. will not be affected unless intended)
+            // Note: Food level is forced to 20, so natural regen happens via SATIATED
+            if (event.getRegainReason() == EntityRegainHealthEvent.RegainReason.SATIATED || event.getRegainReason() == EntityRegainHealthEvent.RegainReason.REGEN) {
+                
+                int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+                long pauseMillis = combatPauseSeconds * 1000L;
+                
+                if (lastCombatTime.containsKey(player.getUniqueId())) {
+                    long lastCombat = lastCombatTime.get(player.getUniqueId());
+                    if (System.currentTimeMillis() - lastCombat < pauseMillis) {
+                        event.setCancelled(true);
+                    }
+                }
             }
         }
     }
