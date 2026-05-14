@@ -21,7 +21,6 @@ A fully-featured BuildFFA minigame plugin for Minecraft servers, built natively 
 | `/savekit` | Save your currently organized kit layout. | None |
 | `/stats` | View your personal BuildFFA statistics. | None |
 | `/setmap` | Map configuration command (spawns, height limits). | `bffa.admin` | *(Inferred)* |
-| `/shop` | Open the in-game shop UI. | None | *(Inferred)* |
 
 *(Note: Server administrators should have the `bffa.admin` permission to configure the arena)*
 
