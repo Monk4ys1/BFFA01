@@ -1,5 +1,5 @@
 # BFFA01 (BuildFFA)
-
+# SPOILER this PLugin is Semi-Vibecoded so just report bugs if you find any. Tanks in Advance for using it.:)
 A fully-featured BuildFFA minigame plugin for Minecraft servers, built natively for the Paper 1.21 API.
 
 ## Features
