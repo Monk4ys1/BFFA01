@@ -1,13 +1,25 @@
-title: "&b&lBuildFFA"
+# ==========================================================================
+#  BuildFFA sidebar
+#
+#  Placeholders:
+#    %player%  %kills%  %deaths%  %kd%  %coins%  %streak%  %best_streak%
+#    %rank%    %map%    %time%    %online%
+#
+#  Colours: &-codes and hex (&#55FFAA). A sidebar shows at most 15 lines.
+# ==========================================================================
+title: "&b&lBUILD&f&lFFA"
 lines:
-  - "&8&m-------------------"
-  - "&7Map: &e%map%"
-  - "&1"
-  - "&fKills: &a%kills%"
-  - "&fDeaths: &c%deaths%"
-  - "&fK/D: &6%kd%"
-  - "&2"
-  - "&fStreak: &d%streak%"
-  - "&3"
-  - "&8&m-------------------"
+  - "&8&m                       "
+  - "&7Arena"
+  - " &b❘ &f%map%"
+  - " &b❘ &7next in &f%time%"
+  - ""
+  - "&7You"
+  - " &a❘ &7Kills: &a%kills%"
+  - " &c❘ &7Deaths: &c%deaths%"
+  - " &6❘ &7K/D: &6%kd%"
+  - " &d❘ &7Streak: &d%streak%"
+  - " &6❘ &7Coins: &6%coins%"
+  - " &b❘ &7Rank: &b%rank%"
+  - "&8&m                       "
   - "&bbffa.infinode.de"

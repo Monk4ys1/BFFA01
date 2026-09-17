@@ -1,23 +1,18 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
-import infinode.org.example.bFFA01.ui.ShopGui;
+import infinode.org.example.bFFA01.ui.KitEditorGui;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-/**
- * Opens the shop.
- *
- * <p>4.x shipped this command class and its click listener but never
- * registered either of them, so the shop was unreachable in game.
- */
-public final class ShopCommand implements CommandExecutor {
+/** Opens the kit editor. */
+public final class KitCommand implements CommandExecutor {
 
     private final BFFA01 plugin;
 
-    public ShopCommand(BFFA01 plugin) {
+    public KitCommand(BFFA01 plugin) {
         this.plugin = plugin;
     }
 
@@ -27,11 +22,8 @@ public final class ShopCommand implements CommandExecutor {
             plugin.messages().send(sender, "player-only");
             return true;
         }
-        if (plugin.combatManager().isTagged(player)) {
-            plugin.messages().send(player, "shop-blocked-in-combat");
-            return true;
-        }
-        new ShopGui(plugin, player).open();
+        plugin.messages().send(player, "kit-editor-hint");
+        new KitEditorGui(plugin, player).open();
         return true;
     }
 }

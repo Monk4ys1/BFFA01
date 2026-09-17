@@ -1,0 +1,16 @@
+# ==========================================================================
+#  BuildFFA arenas
+#
+#  Add an arena in game: stand on the spawn point and run
+#    /bffa setmap <name>
+#  then set its heights with
+#    /bffa setlevel <name> death <y>
+#    /bffa setlevel <name> safe <y>
+#
+#  death-y-level    : below this height a player dies
+#  safezone-y-level : at and above this height nobody can be hurt and
+#                     nobody can build
+#
+#  Arenas from a 4.x config.yml are moved here automatically on first start.
+# ==========================================================================
+maps: {}
