@@ -6,49 +6,57 @@
 
     <groupId>infinode.org.example</groupId>
     <artifactId>BFFA01</artifactId>
-    <version>3.4</version>
+    <version>5.0</version>
     <packaging>jar</packaging>
 
     <name>BFFA01</name>
+    <description>BuildFFA minigame plugin for Minecraft 1.20.1 and newer</description>
 
     <properties>
-        <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--
+          Compiled against the OLDEST supported API (1.20.1) on purpose.
+          Anything that changed between 1.20.1 and later releases (enchantment and
+          potion constants, the InventoryView class-to-interface switch, attribute
+          keys) is resolved at runtime in the `compat` package, so a single jar runs
+          on 1.20.1 up to the current release.
+        -->
+        <paper.api.version>1.20.1-R0.1-SNAPSHOT</paper.api.version>
+        <!-- Java 17 bytecode: 1.20.1 servers run Java 17, 1.20.5+ run Java 21. -->
+        <maven.compiler.release>17</maven.compiler.release>
     </properties>
 
     <build>
         <defaultGoal>clean package</defaultGoal>
+        <finalName>${project.artifactId}-${project.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
                     <compilerArgs>
                         <arg>-parameters</arg>
+                        <arg>-Xlint:all,-deprecation,-processing</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.3</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
         <resources>
+            <!-- Only plugin.yml needs ${project.version} substitution. -->
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
+                <includes>
+                    <include>plugin.yml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>plugin.yml</exclude>
+                </excludes>
             </resource>
         </resources>
     </build>
@@ -64,7 +72,7 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21-R0.1-SNAPSHOT</version>
+            <version>${paper.api.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

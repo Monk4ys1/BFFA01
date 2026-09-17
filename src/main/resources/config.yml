@@ -1,68 +1,123 @@
-# BuildFFA Configuration
+# ==========================================================================
+#  BuildFFA - main configuration
+#
+#  Supported servers: Spigot, Paper and forks, Minecraft 1.20.1 and newer.
+#  Colours: use &-codes (&a) or hex (&#55FFAA) anywhere a text is expected.
+#
+#  Arenas live in maps.yml, the sidebar lives in scoreboard.yml.
+#  Reload everything in game with /bffa reload.
+# ==========================================================================
 
-# The time in seconds between map swaps
-map-swap-interval: 600
+# Do not edit. Used to migrate older configurations automatically.
+config-version: 2
 
-# The time in seconds before placed blocks disappear
-block-remove-delay: 10
+arena:
+  # Seconds between arena swaps.
+  map-swap-interval: 600
+  # Seconds before the swap at which players are warned.
+  map-swap-warnings: [ 60, 30, 10, 5, 3, 2, 1 ]
+  # Seconds before the swap at which placed blocks are cleared and building
+  # is locked, so nobody builds into a map that is about to disappear.
+  reset-blocks-before-swap: 3
+  # Fallback heights for arenas that do not define their own.
+  # Below the death level a player dies, above the safe zone they cannot be hurt.
+  default-death-y-level: 50
+  default-safezone-y-level: 90
 
-# The time in seconds that natural regeneration is paused after taking damage from a player
-combat-regen-pause: 10
+building:
+  # Seconds a placed block survives.
+  block-remove-delay: 10
+  # Seconds before removal at which the block changes colour as a warning.
+  # Set to 0 to disable the warning.
+  block-warning-seconds: 2
+  warning-material: REDSTONE_BLOCK
+  # Allow players to break blocks that players placed. The map itself is
+  # always protected.
+  breakable-placed-blocks: true
 
-# Default fall Y-level and safezone (used if a map doesn't specify one)
-default-death-y-level: 50
-default-safezone-y-level: 90
+combat:
+  # Seconds a player stays "in combat" after taking or dealing damage.
+  # Set to 0 to disable combat tagging entirely.
+  tag-seconds: 10
+  # Block commands while in combat so nobody escapes with /hub.
+  block-commands: true
+  allowed-commands: [ msg, r, tell, shop, stats, kit ]
+  # Count a disconnect during combat as a death and award the kill.
+  punish-combat-log: true
+  # Colour names red in combat and green otherwise, in chat list and above heads.
+  colour-names: true
 
-# The name of the maps and their spawn locations. You can add more maps here.
-maps:
-  basketball:
-    world: "world"
-    x: 38.5
-    y: 201.0
-    z: 0.5
-    yaw: 0.0
-    pitch: 0.0
-    death-y-level: 85
-    safezone-y-level: 190
-  challenger:
-    world: "world"
-    x: -55.5
-    y: 204.0
-    z: -495.0
-    yaw: 0.0
-    pitch: 0.0
-    death-y-level: 135
-    safezone-y-level: 190
-  mariokart:
-    world: "world"
-    x: 13.5
-    y: 239.0
-    z: 665.0
-    yaw: 0.0
-    pitch: 0.0
-    death-y-level: 162
-    safezone-y-level: 232
+rewards:
+  coins-per-kill: 5
+  # Extra coins per killstreak level, e.g. 1 gives +4 coins on a 5 streak.
+  coins-per-killstreak: 1
+  heal-on-kill: true
+  refill-arrows: true
+  # Building blocks handed out per kill, capped at a full stack.
+  blocks-per-kill: 16
 
-# Kit configuration
+protection:
+  cancel-fall-damage: true
+  cancel-explosion-damage: true
+  disable-hunger: true
+  disable-durability: true
+  prevent-item-drop: true
+  prevent-offhand: true
+  prevent-mob-spawns: true
+
+display:
+  scoreboard: true
+  bossbar: true
+  bossbar-title: "&7Next arena in &b%time%"
+  # BLUE, GREEN, PINK, PURPLE, RED, WHITE or YELLOW
+  bossbar-color: BLUE
+  actionbar-combat-timer: true
+  titles: true
+  tablist: true
+  tablist-header:
+    - ""
+    - "&b&lBUILD&f&lFFA"
+    - "&7Arena: &f%map%"
+    - ""
+  tablist-footer:
+    - ""
+    - "&7Online: &f%online%"
+    - "&bbffa.infinode.de"
+    - ""
+  # Floating top list above the arena spawn.
+  holograms: true
+  hologram-entries: 5
+  hologram-offset-y: 3.5
+  hologram-refresh-seconds: 30
+
+storage:
+  # Seconds between statistic saves. Data is also saved on shutdown.
+  autosave-seconds: 300
+
+# --------------------------------------------------------------------------
+#  Kit
+#  Keys under "inventory" are hotbar or inventory slots (0-35).
+#  Players can reorder their hotbar with /kit.
+# --------------------------------------------------------------------------
 kit:
   inventory:
-    0:
+    '0':
       material: IRON_SWORD
       amount: 1
       enchantments:
         SHARPNESS: 1
-    1:
+    '1':
       material: STICK
       amount: 1
       enchantments:
         KNOCKBACK: 1
-    2:
+    '2':
       material: SANDSTONE
       amount: 64
-    3:
+    '3':
       material: BOW
       amount: 1
-    8:
+    '8':
       material: ARROW
       amount: 16
   armor:
@@ -75,14 +130,208 @@ kit:
     boots:
       material: IRON_BOOTS
 
+# --------------------------------------------------------------------------
+#  Killstreaks
+#  Each numbered key is the streak that unlocks the reward.
+#  effects: "<effect>:<ticks>:<amplifier>"   items: "<MATERIAL>:<amount>"
+# --------------------------------------------------------------------------
+killstreaks:
+  # Announce every N kills beyond the rewards below. 0 disables it.
+  broadcast-every: 5
+  '3':
+    message: "&fSpeed II for 10 seconds"
+    broadcast: false
+    sound: "entity.player.levelup"
+    coins: 0
+    effects: [ "speed:200:1" ]
+    items: [ ]
+  '5':
+    message: "&f5 cobwebs"
+    broadcast: true
+    sound: "entity.player.levelup"
+    coins: 10
+    effects: [ ]
+    items: [ "COBWEB:5" ]
+  '10':
+    message: "&fa golden apple and 25 coins"
+    broadcast: true
+    sound: "ui.toast.challenge_complete"
+    coins: 25
+    effects: [ "regeneration:100:1" ]
+    items: [ "GOLDEN_APPLE:1" ]
+
+# --------------------------------------------------------------------------
+#  Shop
+#  slot: position in the 54 slot menu.  enabled: false hides an entry.
+#  Upgrades are permanent, items are lost on death.
+# --------------------------------------------------------------------------
+shop:
+  upgrades:
+    sharpness:
+      enabled: true
+      slot: 10
+      price: 100
+      name: "&b&lSharpness I"
+      lore: [ "&7Your sword deals more damage." ]
+    protection:
+      enabled: true
+      slot: 11
+      price: 150
+      name: "&b&lProtection I"
+      lore: [ "&7Your chestplate absorbs more damage." ]
+    powerbow:
+      enabled: true
+      slot: 12
+      price: 100
+      name: "&b&lPower I"
+      lore: [ "&7Your bow deals more damage." ]
+    knockback2:
+      enabled: true
+      slot: 13
+      price: 150
+      name: "&b&lKnockback II"
+      lore: [ "&7Your stick pushes much further." ]
+    featherfalling:
+      enabled: true
+      slot: 14
+      price: 120
+      name: "&b&lFeather Falling II"
+      lore: [ "&7Softer landings after a long fall." ]
+    punchbow:
+      enabled: true
+      slot: 15
+      price: 120
+      name: "&b&lPunch I"
+      lore: [ "&7Your arrows knock players back." ]
+  items:
+    golden_apple:
+      enabled: true
+      slot: 28
+      price: 10
+      name: "&d1x Golden Apple"
+      lore: [ "&7A quick heal in the middle of a fight." ]
+    ender_pearl:
+      enabled: true
+      slot: 29
+      price: 25
+      name: "&d1x Ender Pearl"
+      lore: [ "&7Throw it to teleport." ]
+    grappling_hook:
+      enabled: true
+      slot: 30
+      price: 50
+      name: "&dGrappling Hook"
+      lore: [ "&7Cast it and get pulled towards the hook." ]
+    fireball:
+      enabled: true
+      slot: 31
+      price: 60
+      name: "&cKnockback Fireball"
+      lore: [ "&7Right-click to launch.", "&7Huge knockback, no damage." ]
+    jump_feather:
+      enabled: true
+      slot: 32
+      price: 20
+      name: "&eJump Boost Feather"
+      lore: [ "&7Right-click for Jump Boost III (10s)." ]
+    speed_powder:
+      enabled: true
+      slot: 33
+      price: 20
+      name: "&fSpeed Powder"
+      lore: [ "&7Right-click for Speed III (5s)." ]
+    web_grenade:
+      enabled: true
+      slot: 34
+      price: 40
+      name: "&7Web Grenade"
+      lore: [ "&7Throw it to trap whoever is chasing you." ]
+    tracker:
+      enabled: true
+      slot: 37
+      price: 15
+      name: "&aPlayer Tracker"
+      lore: [ "&7Right-click to point at the nearest player." ]
+    invisibility_cloak:
+      enabled: true
+      slot: 38
+      price: 60
+      name: "&8Invisibility Cloak"
+      lore: [ "&7Right-click for 15s of invisibility.", "&8Armour stays visible." ]
+    knockback_tnt:
+      enabled: true
+      slot: 39
+      price: 40
+      name: "&cKnockback TNT"
+      lore: [ "&7Right-click to throw a primed charge." ]
+    rescue_platform:
+      enabled: true
+      slot: 40
+      price: 35
+      name: "&bRescue Platform"
+      lore: [ "&7Right-click to place a 3x3 platform below you." ]
+    vampire_fang:
+      enabled: true
+      slot: 41
+      price: 50
+      name: "&4Vampire Fang"
+      lore: [ "&7Your next hit heals you completely." ]
+    switcher_ball:
+      enabled: true
+      slot: 42
+      price: 45
+      name: "&dSwitcher Ball"
+      lore: [ "&7Hit a player to swap places with them." ]
+
+# --------------------------------------------------------------------------
+#  Messages
+#  Set a message to "" to hide it completely.
+# --------------------------------------------------------------------------
 messages:
-  prefix: "&8[&bBuildFFA&8] "
-  join: "&8[&a+&8] &7%player%"
-  quit: "&8[&c-&8] &7%player%"
-  map-swapped: "&7The map has been changed to &e%map%&7!"
-  map-swap-warning: "&7The map will change in &e%seconds% &7seconds!"
+  prefix: "&8[&b&lBuildFFA&8] &r"
+  no-permission: "&cYou are not allowed to do that."
+  player-only: "&cThis command can only be used in game."
+  player-not-found: "&cNo player named &e%player% &cis online."
+  invalid-number: "&c'&e%input%&c' is not a valid number."
+  join: "&8[&a&l+&8] &7%player%"
+  quit: "&8[&c&l-&8] &7%player%"
+  map-swapped: "&7The arena is now &b%map%&7."
+  map-swap-warning: "&7Next arena in &b%seconds%&7s."
+  map-swap-title: "&b&l%map%"
+  map-swap-subtitle: "&7A new arena has started"
+  map-set: "&aSaved the spawn of arena &e%map%&a."
+  map-deleted: "&aDeleted arena &e%map%&a."
+  map-unknown: "&cThere is no arena called &e%map%&c."
+  map-none: "&cNo arena is configured yet. Use &e/bffa setmap <name>&c."
+  map-list: "&7Arenas &8(&b%count%&8)&7: &f%maps%"
   player-killed: "&c%player% &7was killed by &a%killer%&7."
   player-died: "&c%player% &7died."
-  command-usage: "&cUsage: /bffa <setmap> <mapname>"
-  no-permission: "&cYou do not have permission to do that."
-  map-set: "&aSpawn location for map &e%map% &aset successfully."
+  kill-reward: "&7+&6%coins% coins &8| &7Streak &d%streak%"
+  combat-log: "&c%player% &7left while in combat &8(&a%killer% &7got the kill&8)"
+  combat-command-blocked: "&cYou cannot use commands while in combat."
+  combat-actionbar: "&cIn combat &8| %bar% &c%seconds%s"
+  combat-tagged: "&cYou are now in combat!"
+  build-blocked-safezone: "&cYou cannot build inside the safe zone."
+  build-blocked-swap: "&cThe arena is being reset right now."
+  build-break-blocked: "&cYou can only break blocks that players placed."
+  build-mode-on: "&aBuild mode enabled. Arena protection is off for you."
+  build-mode-off: "&cBuild mode disabled."
+  build-mode-other-on: "&aEnabled build mode for &e%player%&a."
+  build-mode-other-off: "&cDisabled build mode for &e%player%&c."
+  shop-not-enough-coins: "&cYou need &6%missing% &cmore coins for that."
+  shop-purchased: "&aPurchased &f%item%&a for &6%price% coins&a."
+  shop-already-owned: "&cYou already own that upgrade."
+  shop-inventory-full: "&cYour inventory is full."
+  shop-blocked-in-combat: "&cYou cannot open the shop while in combat."
+  kit-saved: "&aYour kit layout has been saved."
+  kit-reset: "&aYour kit layout has been reset to the default."
+  kit-editor-hint: "&7Click two items to swap them, then press &aSave&7."
+  killstreak-broadcast: "&6%player% &7is on a &e%streak% &7killstreak!"
+  killstreak-ended: "&7%player%&7's streak of &e%streak% &7was ended by &c%killer%&7."
+  killstreak-reward: "&bKillstreak %streak%! &7%reward%"
+  coins-given: "&aGave &6%amount% coins &ato &e%player%&a."
+  coins-taken: "&aTook &6%amount% coins &afrom &e%player%&a."
+  coins-set: "&aSet the balance of &e%player% &ato &6%amount% coins&a."
+  coins-received: "&aYou received &6%amount% coins&a."
+  stats-reset: "&aReset the statistics of &e%player%&a."
+  config-reloaded: "&aConfiguration reloaded in &e%ms%ms&a."

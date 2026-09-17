@@ -1,18 +1,66 @@
 name: BFFA01
-version: '3.4'
+version: '${project.version}'
 main: infinode.org.example.bFFA01.BFFA01
-api-version: '1.21'
+# 1.20 is the lowest API level this plugin targets. Servers only reject an
+# api-version that is NEWER than themselves, so 1.20.1 up to the current
+# release all accept this value.
+api-version: '1.20'
+authors: [ infinode ]
+description: BuildFFA minigame with maps, kits, shop, killstreaks and scoreboards.
+website: https://bffa.infinode.de
+
 commands:
   bffa:
-    description: "Main command for BuildFFA"
-    usage: "/bffa"
-    permission: "bffa.admin"
-  stats:
-    description: "View your stats"
-    usage: "/stats"
+    description: Main BuildFFA admin command.
+    usage: /bffa help
+    aliases: [ buildffa ]
+    permission: bffa.admin
+  build:
+    description: Toggle build mode (bypasses arena protection).
+    usage: /build [player]
+    permission: bffa.build
+  shop:
+    description: Open the BuildFFA shop.
+    usage: /shop
+    aliases: [ bffashop ]
+    permission: bffa.shop
   kit:
-    description: "Organize your kit"
-    usage: "/kit"
+    description: Open the kit editor.
+    usage: /kit
+    permission: bffa.kit
   savekit:
-    description: "Save your current kit layout"
-    usage: "/savekit"
+    description: Save your current hotbar as your kit layout.
+    usage: /savekit
+    permission: bffa.kit
+  stats:
+    description: Show BuildFFA statistics.
+    usage: /stats [player]
+    aliases: [ bffastats ]
+    permission: bffa.stats
+
+permissions:
+  bffa.admin:
+    description: Full access to every BuildFFA admin command.
+    default: op
+    children:
+      bffa.build: true
+      bffa.bypass.combat: true
+      bffa.stats.other: true
+  bffa.build:
+    description: Allows toggling build mode.
+    default: op
+  bffa.bypass.combat:
+    description: Exempt from the combat tag (commands, combat logging).
+    default: op
+  bffa.shop:
+    description: Allows opening the shop.
+    default: true
+  bffa.kit:
+    description: Allows using the kit editor.
+    default: true
+  bffa.stats:
+    description: Allows viewing your own statistics.
+    default: true
+  bffa.stats.other:
+    description: Allows viewing other players' statistics.
+    default: op
