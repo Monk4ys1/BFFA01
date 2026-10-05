@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -65,7 +66,9 @@ public class ScoreboardManager {
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         int streak = plugin.getKillstreakManager().getStreak(player);
         double kd = deaths == 0 ? kills : (double) kills / deaths;
-        String currentMap = plugin.getMapManager().getCurrentMap() != null ? plugin.getMapManager().getCurrentMap() : "None";
+        String currentMap = plugin.getMapManager().getCurrentMap() != null
+                ? MapNames.sanitizeLabel(plugin.getMapManager().getCurrentMap())
+                : "None";
 
         for (int i = 0; i < lines.size(); i++) {
             String rawLine = lines.get(i);
@@ -80,9 +83,25 @@ public class ScoreboardManager {
             
             Team team = board.getTeam("line" + i);
             if (team != null) {
-                team.setPrefix(processedLine);
+                team.setPrefix(limitTeamPrefix(processedLine));
             }
         }
+    }
+
+    /**
+     * Paper rejects team prefixes longer than 64 characters. A long map label
+     * or scoreboard line must not throw out of the repeating update task.
+     */
+    private static String limitTeamPrefix(String line) {
+        if (line.length() <= 64 && ChatColor.stripColor(line).length() <= 64) {
+            return line;
+        }
+        String trimmed = line;
+        while (!trimmed.isEmpty()
+                && (trimmed.length() > 64 || ChatColor.stripColor(trimmed).length() > 64)) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     private void startUpdateTask() {

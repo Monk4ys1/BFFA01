@@ -48,8 +48,26 @@ public class DataManager {
     public void addDeath(UUID uuid) { dataConfig.set(uuid + ".deaths", getDeaths(uuid) + 1); saveData(); }
 
     public int getCoins(UUID uuid) { return dataConfig.getInt(uuid + ".coins", 0); }
-    public void addCoins(UUID uuid, int amount) { dataConfig.set(uuid + ".coins", getCoins(uuid) + amount); saveData(); }
-    public void removeCoins(UUID uuid, int amount) { dataConfig.set(uuid + ".coins", Math.max(0, getCoins(uuid) - amount)); saveData(); }
+
+    public void addCoins(UUID uuid, int amount) {
+        if (uuid == null || amount <= 0) {
+            return;
+        }
+        long updated = (long) getCoins(uuid) + amount;
+        if (updated > Integer.MAX_VALUE) {
+            updated = Integer.MAX_VALUE;
+        }
+        dataConfig.set(uuid + ".coins", (int) updated);
+        saveData();
+    }
+
+    public void removeCoins(UUID uuid, int amount) {
+        if (uuid == null || amount <= 0) {
+            return;
+        }
+        dataConfig.set(uuid + ".coins", Math.max(0, getCoins(uuid) - amount));
+        saveData();
+    }
 
     public boolean hasUpgrade(UUID uuid, String upgrade) {
         List<String> upgrades = dataConfig.getStringList(uuid + ".upgrades");

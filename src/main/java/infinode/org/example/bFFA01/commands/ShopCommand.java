@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.listeners.ShopInventoryHolder;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -34,13 +35,15 @@ public class ShopCommand implements CommandExecutor {
 
     public void openShop(Player player) {
         // Expand inventory to 54 slots to fit more items
-        Inventory inv = Bukkit.createInventory(null, 54, "Shop & Upgrades");
+        Inventory inv = Bukkit.createInventory(new ShopInventoryHolder(), 54, "Shop & Upgrades");
         int coins = plugin.getDataManager().getCoins(player.getUniqueId());
 
         ItemStack info = new ItemStack(Material.GOLD_INGOT);
         ItemMeta infoMeta = info.getItemMeta();
-        infoMeta.setDisplayName(ChatColor.GOLD + "Your Coins: " + coins);
-        info.setItemMeta(infoMeta);
+        if (infoMeta != null) {
+            infoMeta.setDisplayName(ChatColor.GOLD + "Your Coins: " + coins);
+            info.setItemMeta(infoMeta);
+        }
         inv.setItem(4, info);
 
         // --- PERMANENT UPGRADES (Row 2) ---
@@ -131,9 +134,11 @@ public class ShopCommand implements CommandExecutor {
     private ItemStack createGuiItem(Material material, String name, String... lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(name);
-        meta.setLore(Arrays.asList(lore));
-        item.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(name);
+            meta.setLore(Arrays.asList(lore));
+            item.setItemMeta(meta);
+        }
         return item;
     }
 }

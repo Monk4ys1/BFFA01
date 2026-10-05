@@ -1,9 +1,9 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -47,19 +47,17 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                 
                 Player player = (Player) sender;
                 String mapName = args[1];
-                Location loc = player.getLocation();
-
-                plugin.getConfig().set("maps." + mapName + ".world", loc.getWorld().getName());
-                plugin.getConfig().set("maps." + mapName + ".x", loc.getX());
-                plugin.getConfig().set("maps." + mapName + ".y", loc.getY());
-                plugin.getConfig().set("maps." + mapName + ".z", loc.getZ());
-                plugin.getConfig().set("maps." + mapName + ".yaw", loc.getYaw());
-                plugin.getConfig().set("maps." + mapName + ".pitch", loc.getPitch());
-                plugin.saveConfig();
-                plugin.getMapManager().loadMaps();
+                if (!MapNames.isValid(mapName)) {
+                    sender.sendMessage(prefix + ChatColor.RED + "Map name must be 1-32 letters, numbers, underscores, or hyphens.");
+                    return true;
+                }
+                if (!plugin.getMapManager().defineSpawn(mapName, player.getLocation())) {
+                    sender.sendMessage(prefix + ChatColor.RED + "Could not save that map spawn.");
+                    return true;
+                }
 
                 String success = plugin.getConfig().getString("messages.map-set", "&aSpawn location for map &e%map% &aset successfully.");
-                sender.sendMessage(prefix + ChatColor.translateAlternateColorCodes('&', success.replace("%map%", mapName)));
+                sender.sendMessage(prefix + ChatColor.translateAlternateColorCodes('&', success.replace("%map%", MapNames.sanitizeLabel(mapName))));
                 break;
 
             case "addcoins":
@@ -72,14 +70,13 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.RED + "Player not found or offline.");
                     return true;
                 }
-                try {
-                    int amount = Integer.parseInt(args[2]);
-                    plugin.getDataManager().addCoins(targetAdd.getUniqueId(), amount);
-                    sender.sendMessage(prefix + ChatColor.GREEN + "Gave " + amount + " coins to " + targetAdd.getName() + ".");
-                    targetAdd.sendMessage(prefix + ChatColor.GREEN + "You received " + amount + " coins!");
-                } catch (NumberFormatException e) {
-                    sender.sendMessage(prefix + ChatColor.RED + "Invalid amount.");
+                Integer amount = parsePositiveAmount(sender, args[2], prefix);
+                if (amount == null) {
+                    return true;
                 }
+                plugin.getDataManager().addCoins(targetAdd.getUniqueId(), amount);
+                sender.sendMessage(prefix + ChatColor.GREEN + "Gave " + amount + " coins to " + targetAdd.getName() + ".");
+                targetAdd.sendMessage(prefix + ChatColor.GREEN + "You received " + amount + " coins!");
                 break;
 
             case "removecoins":
@@ -92,13 +89,12 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.RED + "Player not found or offline.");
                     return true;
                 }
-                try {
-                    int amount = Integer.parseInt(args[2]);
-                    plugin.getDataManager().removeCoins(targetRem.getUniqueId(), amount);
-                    sender.sendMessage(prefix + ChatColor.GREEN + "Removed " + amount + " coins from " + targetRem.getName() + ".");
-                } catch (NumberFormatException e) {
-                    sender.sendMessage(prefix + ChatColor.RED + "Invalid amount.");
+                Integer removeAmount = parsePositiveAmount(sender, args[2], prefix);
+                if (removeAmount == null) {
+                    return true;
                 }
+                plugin.getDataManager().removeCoins(targetRem.getUniqueId(), removeAmount);
+                sender.sendMessage(prefix + ChatColor.GREEN + "Removed " + removeAmount + " coins from " + targetRem.getName() + ".");
                 break;
 
             case "resetstats":
@@ -123,8 +119,12 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap. Sequence initiated (3 seconds).");
                 } else if (args.length == 2) {
                     String targetMap = args[1];
+                    if (!plugin.getMapManager().hasMap(targetMap)) {
+                        sender.sendMessage(prefix + ChatColor.RED + "Unknown map.");
+                        return true;
+                    }
                     plugin.getMapManager().forceSwapSequence(targetMap);
-                    sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap to '" + targetMap + "'. Sequence initiated (3 seconds).");
+                    sender.sendMessage(prefix + ChatColor.GREEN + "Forced a map swap to '" + MapNames.sanitizeLabel(targetMap) + "'. Sequence initiated (3 seconds).");
                 } else {
                     sender.sendMessage(prefix + ChatColor.RED + "Usage: /bffa swapmap [mapname]");
                 }
@@ -136,6 +136,20 @@ public class BuildFFAAdminCommand implements CommandExecutor {
         }
 
         return true;
+    }
+
+    private Integer parsePositiveAmount(CommandSender sender, String raw, String prefix) {
+        try {
+            int amount = Integer.parseInt(raw);
+            if (amount <= 0) {
+                sender.sendMessage(prefix + ChatColor.RED + "Amount must be a positive number.");
+                return null;
+            }
+            return amount;
+        } catch (NumberFormatException e) {
+            sender.sendMessage(prefix + ChatColor.RED + "Invalid amount.");
+            return null;
+        }
     }
 
     private void sendHelp(CommandSender sender) {

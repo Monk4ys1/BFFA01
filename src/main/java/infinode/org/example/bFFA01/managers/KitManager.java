@@ -77,9 +77,15 @@ public class KitManager {
                                 for (String enchantName : enchants.getKeys(false)) {
                                     Enchantment enchantment = Enchantment.getByName(enchantName.toUpperCase());
                                     if (enchantment != null) {
+                                        int level = enchants.getInt(enchantName);
+                                        if (level < 1) {
+                                            continue;
+                                        }
+                                        // Config cannot raise an enchant past its vanilla cap.
+                                        level = Math.min(level, enchantment.getMaxLevel());
                                         // Don't overwrite if we already applied a stronger upgrade
-                                        if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < enchants.getInt(enchantName)) {
-                                            meta.addEnchant(enchantment, enchants.getInt(enchantName), true);
+                                        if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < level) {
+                                            meta.addEnchant(enchantment, level, false);
                                         }
                                     }
                                 }

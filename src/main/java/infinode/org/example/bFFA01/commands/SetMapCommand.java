@@ -1,8 +1,8 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.ChatColor;
-import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -40,22 +40,18 @@ public class SetMapCommand implements CommandExecutor {
         }
 
         String mapName = args[0];
-        Location loc = player.getLocation();
-
-        // Save to config
-        plugin.getConfig().set("maps." + mapName + ".world", loc.getWorld().getName());
-        plugin.getConfig().set("maps." + mapName + ".x", loc.getX());
-        plugin.getConfig().set("maps." + mapName + ".y", loc.getY());
-        plugin.getConfig().set("maps." + mapName + ".z", loc.getZ());
-        plugin.getConfig().set("maps." + mapName + ".yaw", loc.getYaw());
-        plugin.getConfig().set("maps." + mapName + ".pitch", loc.getPitch());
-        plugin.saveConfig();
-
-        plugin.getMapManager().loadMaps();
-
         String prefix = plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] ");
+        if (!MapNames.isValid(mapName)) {
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', prefix) + ChatColor.RED + "Map name must be 1-32 letters, numbers, underscores, or hyphens.");
+            return true;
+        }
+        if (!plugin.getMapManager().defineSpawn(mapName, player.getLocation())) {
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', prefix) + ChatColor.RED + "Could not save that map spawn.");
+            return true;
+        }
+
         String success = plugin.getConfig().getString("messages.map-set", "&aSpawn location for map &e%map% &aset successfully.");
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&', prefix + success.replace("%map%", mapName)));
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&', prefix + success.replace("%map%", MapNames.sanitizeLabel(mapName))));
 
         return true;
     }

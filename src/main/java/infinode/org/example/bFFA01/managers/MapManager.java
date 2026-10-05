@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -114,7 +115,7 @@ public class MapManager {
 
         String message = plugin.getConfig().getString("messages.map-swapped", "&7The map has been changed to &e%map%&7!");
         String prefix = plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] ");
-        String finalMessage = ChatColor.translateAlternateColorCodes('&', prefix + message.replace("%map%", currentMap));
+        String finalMessage = ChatColor.translateAlternateColorCodes('&', prefix + message.replace("%map%", MapNames.sanitizeLabel(currentMap)));
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             player.sendMessage(finalMessage);
@@ -151,6 +152,30 @@ public class MapManager {
         } else {
             player.sendMessage(ChatColor.RED + "Spawn location not set for this map!");
         }
+    }
+
+    public boolean hasMap(String mapName) {
+        return mapName != null && availableMaps.contains(mapName);
+    }
+
+    /**
+     * Persists a spawn only for a safe map id. The id is a single config key
+     * under maps, never a dotted path.
+     */
+    public boolean defineSpawn(String mapName, Location loc) {
+        if (!MapNames.isValid(mapName) || loc == null || loc.getWorld() == null) {
+            return false;
+        }
+        String base = "maps." + mapName;
+        plugin.getConfig().set(base + ".world", loc.getWorld().getName());
+        plugin.getConfig().set(base + ".x", loc.getX());
+        plugin.getConfig().set(base + ".y", loc.getY());
+        plugin.getConfig().set(base + ".z", loc.getZ());
+        plugin.getConfig().set(base + ".yaw", loc.getYaw());
+        plugin.getConfig().set(base + ".pitch", loc.getPitch());
+        plugin.saveConfig();
+        loadMaps();
+        return true;
     }
 
     public String getCurrentMap() {
