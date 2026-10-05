@@ -4,47 +4,62 @@ A fully-featured BuildFFA minigame plugin for Minecraft servers, built natively 
 
 ## Features
 
-- **Map Management:** Easily configure, manage, and switch between multiple BuildFFA arenas.
-- **Kit System & Editor:** Players can organize, customize, and save their preferred inventory layouts.
-- **In-game Shop:** Purchase items, upgrades, or cosmetics using in-game statistics or currency.
-- **Killstreaks & Stats:** Track kills and deaths, calculate K/D ratios, and reward players with killstreaks.
-- **Scoreboards & Holograms:** Dynamic scoreboards and hologram integration to display top stats or player information.
-- **Highly Customizable:** Extensive configuration via `config.yml`, `maps.yml`, and `scoreboard.yml`.
+- **Map Management:** Configure arenas in `config.yml` and rotate them on a timer.
+- **Kit layout:** Players arrange their hotbar and save it with `/savekit`.
+- **Killstreaks & Stats:** Track kills and deaths, calculate K/D ratios, and reward killstreaks.
+- **Scoreboard:** Sidebar stats from `scoreboard.yml`.
+- **Configuration:** Settings, messages, the kit, and map spawns live in `config.yml`.
 
 ## Commands & Permissions
 
 | Command | Description | Permission |
 | :--- | :--- | :--- |
-| `/bffa` | Main admin command for BuildFFA setup and configuration. | `bffa.admin` |
-| `/build` | Toggle build mode to bypass arena protections and edit maps. | `bffa.admin` |
-| `/kit` | Open the Kit Editor UI to customize your layout. | None |
-| `/savekit` | Save your currently organized kit layout. | None |
-| `/stats` | View your personal BuildFFA statistics. | None |
-| `/setmap` | Map configuration command (spawns, height limits). | `bffa.admin` | *(Inferred)* |
+| `/bffa` | Admin command: `setmap`, `swapmap`, `addcoins`, `removecoins`, `resetstats`. | `bffa.admin` |
+| `/kit` | Remind the player to arrange their hotbar. | None |
+| `/savekit` | Save the current hotbar layout. | None |
+| `/stats` | View personal kills, deaths, K/D, and coins. | None |
 
-*(Note: Server administrators should have the `bffa.admin` permission to configure the arena)*
+Map spawns are set with `/bffa setmap <name>`. `bffa.admin` defaults to operators.
 
 ## Installation
 
-1. Download the compiled `BFFA01-4.1.jar` file.
-2. Place the `.jar` into your server's `plugins/` directory.
-3. Restart or reload your server.
-4. The default configuration files (`config.yml`, `maps.yml`, `scoreboard.yml`) will automatically generate in `plugins/BFFA01/`.
-5. Setup your maps in-game using `/bffa` or by manually editing `maps.yml`.
+Plugin jars are not stored in this repository. Install a build you produced yourself, or a GitHub Release asset whose checksum you have verified.
+
+1. Build from source (below) or download the jar **and its `.sha256` file** from [GitHub Releases](https://github.com/Monk4ys1/BFFA01/releases).
+2. Verify the download before copying it onto a server:
+
+   ```bash
+   sha256sum -c BFFA01-<version>.jar.sha256
+   ```
+
+   Install the jar only when that command prints `OK`.
+3. Place the verified jar in the server's `plugins/` directory.
+4. Restart the server. `config.yml` and `scoreboard.yml` are created in `plugins/BFFA01/`.
+5. Set map spawns with `/bffa setmap <name>` or by editing the `maps` section of `config.yml`.
 
 ## Configuration Files
 
-- `config.yml` - Main plugin settings, localized messages, and shop pricing.
-- `maps.yml` - Location data for your BuildFFA arenas (spawns, death zones, etc.).
-- `scoreboard.yml` - Layout and design of the player side-scoreboards.
+- `config.yml` — settings, messages, kit, and map spawns.
+- `scoreboard.yml` — sidebar layout.
+- `data.yml` — created at runtime for stats, coins, and kit layouts.
 
 ## Building from Source
 
-This project uses Maven and requires **Java 21**.
+Java 21 and Maven are required.
 
-1. Clone the repository.
-2. Run `mvn clean package`.
-3. The compiled jar will be located in the `target/` directory.
+```bash
+mvn package
+```
+
+The plugin jar is `target/BFFA01-<version>.jar`, where `<version>` is the version in `pom.xml`. `target/` is gitignored.
+
+To publish that jar, create a GitHub Release and attach both the jar and a checksum file:
+
+```bash
+sha256sum target/BFFA01-*.jar | tee BFFA01-<version>.jar.sha256
+```
+
+Upload `target/BFFA01-<version>.jar` and `BFFA01-<version>.jar.sha256` as Release assets. Do not commit either file.
 
 ## Requirements
 

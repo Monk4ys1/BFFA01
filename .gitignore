@@ -17,8 +17,9 @@ out/
 # BlueJ files
 *.ctxt
 
-# Package Files #
+# Package files. Plugin jars are published as GitHub Releases, never committed.
 *.jar
+target/*.jar
 *.war
 *.nar
 *.ear

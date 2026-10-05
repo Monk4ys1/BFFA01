@@ -18,6 +18,7 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.player.*;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -567,7 +568,10 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) return;
+        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) {
+            event.setCancelled(true);
+            return;
+        }
 
         // Prevent putting items in the offhand slot directly or via shortcut
         if (event.getSlot() == 40 || event.getClick().toString().equals("SWAP_OFFHAND")) {
@@ -581,6 +585,13 @@ public class GameListener implements Listener {
             if (player.getLocation().getY() < safezoneY) {
                 event.setCancelled(true);
             }
+        }
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) {
+            event.setCancelled(true);
         }
     }
 
