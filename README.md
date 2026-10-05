@@ -23,6 +23,10 @@ Map spawns are set with `/bffa setmap <name>`. `bffa.admin` defaults to operator
 
 ## Installation
 
+**Do not download `BFFA01-4.1.jar` from git history or a raw GitHub URL.** That file is an old binary and does not match this source. Build with `mvn package` from the current tree only (or install a Release asset that was built from it) and verify the checksum before you put the jar on a server.
+
+Release 4.1 included `/build` and a separate `maps.yml`. This tree has neither. If you are upgrading from 4.1, copy each arena spawn into the `maps:` section of `config.yml`.
+
 Plugin jars are not stored in this repository. Install a build you produced yourself, or a GitHub Release asset whose checksum you have verified.
 
 1. Build from source (below) or download the jar **and its `.sha256` file** from [GitHub Releases](https://github.com/Monk4ys1/BFFA01/releases).
@@ -32,7 +36,7 @@ Plugin jars are not stored in this repository. Install a build you produced your
    sha256sum -c BFFA01-<version>.jar.sha256
    ```
 
-   Install the jar only when that command prints `OK`.
+   The jar and the checksum file must be in the same directory. Install the jar only when that command prints `OK`.
 3. Place the verified jar in the server's `plugins/` directory.
 4. Restart the server. `config.yml` and `scoreboard.yml` are created in `plugins/BFFA01/`.
 5. Set map spawns with `/bffa setmap <name>` or by editing the `maps` section of `config.yml`.
@@ -56,10 +60,10 @@ The plugin jar is `target/BFFA01-<version>.jar`, where `<version>` is the versio
 To publish that jar, create a GitHub Release and attach both the jar and a checksum file:
 
 ```bash
-sha256sum target/BFFA01-*.jar | tee BFFA01-<version>.jar.sha256
+( cd target && sha256sum BFFA01-*.jar ) | tee BFFA01-<version>.jar.sha256
 ```
 
-Upload `target/BFFA01-<version>.jar` and `BFFA01-<version>.jar.sha256` as Release assets. Do not commit either file.
+Hash from inside `target/` so the checksum file contains only the jar basename (`BFFA01-<version>.jar`), not `target/...`. `sha256sum -c` then succeeds when both files are in the same directory. Upload `target/BFFA01-<version>.jar` and `BFFA01-<version>.jar.sha256` as Release assets. Do not commit either file.
 
 ## Requirements
 
