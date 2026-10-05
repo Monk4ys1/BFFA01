@@ -13,6 +13,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class HologramManager {
+    private static final String HOLOGRAM_TAG = "bffa_hologram";
+
     private final BFFA01 plugin;
     private final List<UUID> hologramUUIDs = new ArrayList<>();
 
@@ -68,19 +70,12 @@ public class HologramManager {
     }
 
     private void hologramsClearWorldSearch() {
-        // Fallback: iterate over worlds and remove ANY armor stand that is a marker and invisible (typical hologram setup) 
-        // to catch ghosts left behind after a server crash or reload.
+        // Only remove armor stands this plugin tagged. Name matching is not
+        // used: a "#" or "Top Kills" substring would delete other plugins' holograms.
         for (org.bukkit.World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntities()) {
-                if (entity.getType() == EntityType.ARMOR_STAND) {
-                    ArmorStand as = (ArmorStand) entity;
-                    // Check if it's likely a hologram we created
-                    if (as.isMarker() && !as.isVisible() && !as.hasGravity() && as.isCustomNameVisible()) {
-                        String name = as.getCustomName();
-                        if (name != null && (name.contains("Top Kills") || name.contains("#") || name.contains("No stats yet!"))) {
-                            as.remove();
-                        }
-                    }
+                if (entity.getType() == EntityType.ARMOR_STAND && entity.getScoreboardTags().contains(HOLOGRAM_TAG)) {
+                    entity.remove();
                 }
             }
         }
@@ -93,6 +88,7 @@ public class HologramManager {
         as.setCustomName(text);
         as.setGravity(false);
         as.setMarker(true);
+        as.addScoreboardTag(HOLOGRAM_TAG);
         hologramUUIDs.add(as.getUniqueId());
     }
 }

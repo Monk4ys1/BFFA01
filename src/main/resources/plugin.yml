@@ -16,3 +16,8 @@ commands:
   savekit:
     description: "Save your current kit layout"
     usage: "/savekit"
+
+permissions:
+  bffa.admin:
+    description: Administer BuildFFA maps, coins, and stats
+    default: op

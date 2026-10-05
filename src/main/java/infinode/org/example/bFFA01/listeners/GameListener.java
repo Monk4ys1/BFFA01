@@ -39,6 +39,7 @@ public class GameListener implements Listener {
     private final Map<UUID, Boolean> vampireFangActive = new HashMap<>();
     private final Map<UUID, Long> lastCombatTime = new HashMap<>();
     private final Map<UUID, UUID> lastDamager = new HashMap<>();
+    private static final String COMBAT_LOG_BAN_SOURCE = "BuildFFA System";
 
     public GameListener(BFFA01 plugin) {
         this.plugin = plugin;
@@ -237,21 +238,9 @@ public class GameListener implements Listener {
             lastCombatTime.remove(player.getUniqueId());
             lastDamager.remove(player.getUniqueId());
 
-            // To ensure the "You have been kicked" message shows on their disconnect screen,
-            // we will quickly ban them and immediately unban them. We do this asynchronously to
-            // not block the main thread and allow them to reconnect quickly.
-            String banReason = ChatColor.RED + "You have been kicked for Combat Logging.\nYour attacker was awarded the kill.";
-            Bukkit.getBanList(org.bukkit.BanList.Type.NAME).addBan(
-                    player.getName(),
-                    banReason,
-                    new java.util.Date(now + 2000L), // 2 seconds
-                    "BuildFFA System"
-            );
-
-            // Pardon them almost immediately
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                Bukkit.getBanList(org.bukkit.BanList.Type.NAME).pardon(player.getName());
-            }, 10L); // 0.5s later
+            // Short name ban so the disconnect screen shows the combat-log reason.
+            // Never replace or pardon a ban this plugin did not just create.
+            applyCombatLogBan(player, now);
             
             // Since they are combat logging, we don't want to broadcast the normal quit message
             event.setQuitMessage(null);
@@ -268,6 +257,57 @@ public class GameListener implements Listener {
         event.setQuitMessage(ChatColor.translateAlternateColorCodes('&', quitMsg.replace("%player%", player.getName())));
     }
 
+    private void applyCombatLogBan(Player player, long now) {
+        String banTarget = player.getName();
+        if (banTarget == null || banTarget.isEmpty()) {
+            return;
+        }
+        if (isProfileBanned(player)) {
+            return;
+        }
+        org.bukkit.BanList nameBans = Bukkit.getBanList(org.bukkit.BanList.Type.NAME);
+        if (nameBans.isBanned(banTarget)) {
+            return;
+        }
+        org.bukkit.BanEntry created = nameBans.addBan(
+                banTarget,
+                ChatColor.RED + "You have been kicked for Combat Logging.\nYour attacker was awarded the kill.",
+                new java.util.Date(now + 2000L),
+                COMBAT_LOG_BAN_SOURCE
+        );
+        if (created == null || !COMBAT_LOG_BAN_SOURCE.equals(created.getSource())) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> pardonOwnCombatLogBan(banTarget), 10L);
+    }
+
+    private boolean isProfileBanned(Player player) {
+        try {
+            org.bukkit.profile.PlayerProfile profile = player.getPlayerProfile();
+            if (profile == null || profile.getUniqueId() == null) {
+                return false;
+            }
+            org.bukkit.ban.ProfileBanList profiles = Bukkit.getBanList(org.bukkit.BanList.Type.PROFILE);
+            return profiles.isBanned(profile);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().warning("Could not check profile ban for " + player.getName() + ": " + ex.getMessage());
+            return true;
+        }
+    }
+
+    private void pardonOwnCombatLogBan(String banTarget) {
+        org.bukkit.BanList nameBans = Bukkit.getBanList(org.bukkit.BanList.Type.NAME);
+        org.bukkit.BanEntry entry = nameBans.getBanEntry(banTarget);
+        if (entry == null || !COMBAT_LOG_BAN_SOURCE.equals(entry.getSource())) {
+            return;
+        }
+        java.util.Date expires = entry.getExpiration();
+        long remaining = expires == null ? Long.MAX_VALUE : expires.getTime() - System.currentTimeMillis();
+        if (expires != null && remaining <= 2500L) {
+            nameBans.pardon(banTarget);
+        }
+    }
+
     @EventHandler
     public void onPlayerCommandPreprocess(PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
@@ -275,9 +315,9 @@ public class GameListener implements Listener {
         int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
         long pauseMillis = combatPauseSeconds * 1000L;
         
-        // Prevent leaving during combat via commands like /hub, /spawn, /leave etc.
-        // We will just block ALL commands during combat for safety.
-        if (isPlayerInCombat(player, now, pauseMillis)) {
+        // Block commands during combat so players cannot escape with /hub or /spawn.
+        // Staff keep command access so a combat tag cannot lock out moderation.
+        if (isPlayerInCombat(player, now, pauseMillis) && !player.hasPermission("bffa.admin")) {
             event.setCancelled(true);
             player.sendMessage(ChatColor.RED + "You cannot use commands while in combat!");
         }
@@ -527,7 +567,7 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (event.getView().getTitle().equals("Shop & Upgrades")) return;
+        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) return;
 
         // Prevent putting items in the offhand slot directly or via shortcut
         if (event.getSlot() == 40 || event.getClick().toString().equals("SWAP_OFFHAND")) {
