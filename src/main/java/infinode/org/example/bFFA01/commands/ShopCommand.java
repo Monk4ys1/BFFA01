@@ -2,7 +2,6 @@ package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.listeners.ShopInventoryHolder;
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -34,8 +33,7 @@ public class ShopCommand implements CommandExecutor {
     }
 
     public void openShop(Player player) {
-        // Expand inventory to 54 slots to fit more items
-        Inventory inv = Bukkit.createInventory(new ShopInventoryHolder(), 54, "Shop & Upgrades");
+        Inventory inv = new ShopInventoryHolder().getInventory();
         int coins = plugin.getDataManager().getCoins(player.getUniqueId());
 
         ItemStack info = new ItemStack(Material.GOLD_INGOT);

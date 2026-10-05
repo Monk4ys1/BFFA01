@@ -47,7 +47,9 @@ public class DataManager {
     public int getDeaths(UUID uuid) { return dataConfig.getInt(uuid + ".deaths", 0); }
     public void addDeath(UUID uuid) { dataConfig.set(uuid + ".deaths", getDeaths(uuid) + 1); saveData(); }
 
-    public int getCoins(UUID uuid) { return dataConfig.getInt(uuid + ".coins", 0); }
+    public int getCoins(UUID uuid) {
+        return Math.max(0, dataConfig.getInt(uuid + ".coins", 0));
+    }
 
     public void addCoins(UUID uuid, int amount) {
         if (uuid == null || amount <= 0) {
@@ -65,7 +67,11 @@ public class DataManager {
         if (uuid == null || amount <= 0) {
             return;
         }
-        dataConfig.set(uuid + ".coins", Math.max(0, getCoins(uuid) - amount));
+        long updated = (long) getCoins(uuid) - amount;
+        if (updated < 0L) {
+            updated = 0L;
+        }
+        dataConfig.set(uuid + ".coins", (int) updated);
         saveData();
     }
 
