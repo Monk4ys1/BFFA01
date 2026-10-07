@@ -9,12 +9,27 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.util.function.Function;
+
 public class BuildFFAAdminCommand implements CommandExecutor {
 
     private final BFFA01 plugin;
+    private final Function<String, Player> onlinePlayers;
 
     public BuildFFAAdminCommand(BFFA01 plugin) {
+        this(plugin, Bukkit::getPlayerExact);
+    }
+
+    BuildFFAAdminCommand(BFFA01 plugin, Function<String, Player> onlinePlayers) {
         this.plugin = plugin;
+        this.onlinePlayers = onlinePlayers;
+    }
+
+    private Player findOnline(String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        return onlinePlayers.apply(name);
     }
 
     @Override
@@ -65,7 +80,7 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.RED + "Usage: /bffa addcoins <player> <amount>");
                     return true;
                 }
-                Player targetAdd = Bukkit.getPlayer(args[1]);
+                Player targetAdd = findOnline(args[1]);
                 if (targetAdd == null) {
                     sender.sendMessage(prefix + ChatColor.RED + "Player not found or offline.");
                     return true;
@@ -74,7 +89,10 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                 if (amount == null) {
                     return true;
                 }
-                plugin.getDataManager().addCoins(targetAdd.getUniqueId(), amount);
+                if (!plugin.getDataManager().addCoins(targetAdd.getUniqueId(), amount)) {
+                    sender.sendMessage(prefix + ChatColor.RED + "Could not update that player's coins.");
+                    return true;
+                }
                 sender.sendMessage(prefix + ChatColor.GREEN + "Gave " + amount + " coins to " + targetAdd.getName() + ".");
                 targetAdd.sendMessage(prefix + ChatColor.GREEN + "You received " + amount + " coins!");
                 break;
@@ -84,7 +102,7 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.RED + "Usage: /bffa removecoins <player> <amount>");
                     return true;
                 }
-                Player targetRem = Bukkit.getPlayer(args[1]);
+                Player targetRem = findOnline(args[1]);
                 if (targetRem == null) {
                     sender.sendMessage(prefix + ChatColor.RED + "Player not found or offline.");
                     return true;
@@ -93,7 +111,10 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                 if (removeAmount == null) {
                     return true;
                 }
-                plugin.getDataManager().removeCoins(targetRem.getUniqueId(), removeAmount);
+                if (!plugin.getDataManager().removeCoins(targetRem.getUniqueId(), removeAmount)) {
+                    sender.sendMessage(prefix + ChatColor.RED + "Could not update that player's coins.");
+                    return true;
+                }
                 sender.sendMessage(prefix + ChatColor.GREEN + "Removed " + removeAmount + " coins from " + targetRem.getName() + ".");
                 break;
 
@@ -102,14 +123,15 @@ public class BuildFFAAdminCommand implements CommandExecutor {
                     sender.sendMessage(prefix + ChatColor.RED + "Usage: /bffa resetstats <player>");
                     return true;
                 }
-                Player targetReset = Bukkit.getPlayer(args[1]);
+                Player targetReset = findOnline(args[1]);
                 if (targetReset == null) {
                     sender.sendMessage(prefix + ChatColor.RED + "Player not found or offline.");
                     return true;
                 }
-                plugin.getDataManager().getConfig().set(targetReset.getUniqueId() + ".kills", 0);
-                plugin.getDataManager().getConfig().set(targetReset.getUniqueId() + ".deaths", 0);
-                plugin.getDataManager().saveData();
+                if (!plugin.getDataManager().resetStats(targetReset.getUniqueId())) {
+                    sender.sendMessage(prefix + ChatColor.RED + "Could not reset that player's stats.");
+                    return true;
+                }
                 sender.sendMessage(prefix + ChatColor.GREEN + "Reset stats for " + targetReset.getName() + ".");
                 break;
                 

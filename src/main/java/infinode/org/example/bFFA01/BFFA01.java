@@ -47,7 +47,9 @@ public final class BFFA01 extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        if (dataManager != null) {
+            dataManager.flush();
+        }
     }
 
     public KitManager getKitManager() { return kitManager; }

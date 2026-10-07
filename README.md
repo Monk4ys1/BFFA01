@@ -37,6 +37,8 @@ Plugin jars are not stored in this repository. Install a build you produced your
    ```
 
    The jar and the checksum file must be in the same directory. Install the jar only when that command prints `OK`.
+
+   That check detects a corrupted download. A checksum published in the same GitHub Release does not prove who built the jar, because anyone who can replace the jar can replace the checksum. Prefer a signed release or published build provenance when one is available.
 3. Place the verified jar in the server's `plugins/` directory.
 4. Restart the server. `config.yml` and `scoreboard.yml` are created in `plugins/BFFA01/`.
 5. Set map spawns with `/bffa setmap <name>` or by editing the `maps` section of `config.yml`.
@@ -56,6 +58,8 @@ mvn package
 ```
 
 The plugin jar is `target/BFFA01-<version>.jar`, where `<version>` is the version in `pom.xml`. `target/` is gitignored.
+
+The Paper API dependency stays on the Java 21 `1.21` line. Maven fails the build if repository checksums do not match, and it checks the resolved jar against immutable build `1.21-R0.1-20240810.100446-132`. Paper 26.x artifacts require Java 25 and are not used here.
 
 To publish that jar, create a GitHub Release and attach both the jar and a checksum file:
 
