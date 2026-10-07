@@ -363,8 +363,10 @@ public class GameListener implements Listener {
                 if (!placedBlocks.contains(placement) || !placement.shouldWarn()) {
                     return;
                 }
-                placement.markWarned();
-                placement.block().setType(Material.REDSTONE_BLOCK);
+                if (!placement.stillOurs()) {
+                    return;
+                }
+                placement.applyWarning();
             }
         }.runTaskLater(plugin, warningTime * 20L);
 
@@ -375,7 +377,7 @@ public class GameListener implements Listener {
                     return;
                 }
                 if (placement.release()) {
-                    placedBlocks.remove(placement);
+                    placedBlocks.removeAll(placement.members());
                 }
             }
         }.runTaskLater(plugin, delaySeconds * 20L);
@@ -821,7 +823,7 @@ public class GameListener implements Listener {
             public void run() {
                 for (TrackedPlacement placement : created) {
                     if (placedBlocks.contains(placement) && placement.release()) {
-                        placedBlocks.remove(placement);
+                        placedBlocks.removeAll(placement.members());
                     }
                 }
             }
@@ -851,7 +853,7 @@ public class GameListener implements Listener {
             public void run() {
                 for (TrackedPlacement placement : created) {
                     if (placedBlocks.contains(placement) && placement.release()) {
-                        placedBlocks.remove(placement);
+                        placedBlocks.removeAll(placement.members());
                     }
                 }
             }

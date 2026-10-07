@@ -8,7 +8,9 @@ import org.bukkit.scheduler.BukkitTask;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -224,9 +226,17 @@ public class DataManager {
         if (!Files.isRegularFile(dataFile)) {
             return;
         }
-        Path corrupt = dataFile.resolveSibling("data.yml.corrupt");
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
+                .withZone(ZoneOffset.UTC)
+                .format(Instant.now());
+        Path corrupt = dataFile.resolveSibling("data.yml." + stamp + ".corrupt");
+        int suffix = 1;
+        while (Files.exists(corrupt)) {
+            corrupt = dataFile.resolveSibling("data.yml." + stamp + "-" + suffix + ".corrupt");
+            suffix++;
+        }
         try {
-            Files.copy(dataFile, corrupt, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(dataFile, corrupt);
         } catch (IOException ex) {
             plugin.getLogger().warning("Could not copy corrupt data.yml: " + ex.getMessage());
         }

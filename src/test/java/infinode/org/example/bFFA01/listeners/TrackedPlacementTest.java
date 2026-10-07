@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.listeners;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockMultiPlaceEvent;
@@ -18,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -144,15 +149,61 @@ class TrackedPlacementTest {
     }
 
     @Test
-    void bedsAndDoorsTrackBothHalves() {
+    void bedsDoorsAndSunflowersRestoreBothHalvesWithoutPhysics() {
         Block lowerBlock = mock(Block.class);
         Block upperBlock = mock(Block.class);
-        when(lowerBlock.getType()).thenReturn(Material.OAK_DOOR);
-        when(upperBlock.getType()).thenReturn(Material.OAK_DOOR);
+        when(lowerBlock.getType()).thenReturn(Material.SUNFLOWER);
+        when(upperBlock.getType()).thenReturn(Material.SUNFLOWER);
+        BlockData lowerData = mock(BlockData.class);
+        BlockData upperData = mock(BlockData.class);
         BlockState lower = mock(BlockState.class);
         BlockState upper = mock(BlockState.class);
         when(lower.getBlock()).thenReturn(lowerBlock);
         when(upper.getBlock()).thenReturn(upperBlock);
+        when(lower.getBlockData()).thenReturn(lowerData);
+        when(upper.getBlockData()).thenReturn(upperData);
+        Block placed = mock(Block.class);
+        when(placed.getType()).thenReturn(Material.SUNFLOWER);
+        BlockMultiPlaceEvent event = mock(BlockMultiPlaceEvent.class);
+        when(event.getReplacedBlockStates()).thenReturn(List.of(lower, upper));
+        when(event.getBlockPlaced()).thenReturn(placed);
+        doAnswer(invocation -> {
+            when(lowerBlock.getType()).thenReturn(Material.AIR);
+            return null;
+        }).when(upperBlock).setBlockData(upperData, false);
+
+        List<TrackedPlacement> tracked = new ArrayList<>();
+        List<TrackedPlacement> scheduled = TrackedPlacement.trackEvent(tracked, event);
+
+        assertEquals(1, scheduled.size());
+        assertEquals(2, tracked.size());
+        assertEquals(2, scheduled.get(0).members().size());
+        TrackedPlacement.restoreAll(tracked);
+
+        InOrder order = inOrder(upperBlock, lowerBlock);
+        order.verify(upperBlock).setBlockData(upperData, false);
+        order.verify(lowerBlock).setBlockData(lowerData, false);
+        verify(lower, never()).update(anyBoolean(), anyBoolean());
+        verify(upper, never()).update(anyBoolean(), anyBoolean());
+        verify(lowerBlock, never()).setType(any(Material.class), eq(true));
+        verify(upperBlock, never()).setType(any(Material.class), eq(true));
+        assertTrue(tracked.isEmpty());
+    }
+
+    @Test
+    void releasingATwoBlockGroupRestoresBothHalvesOnce() {
+        Block lowerBlock = mock(Block.class);
+        Block upperBlock = mock(Block.class);
+        when(lowerBlock.getType()).thenReturn(Material.OAK_DOOR);
+        when(upperBlock.getType()).thenReturn(Material.OAK_DOOR);
+        BlockData lowerData = mock(BlockData.class);
+        BlockData upperData = mock(BlockData.class);
+        BlockState lower = mock(BlockState.class);
+        BlockState upper = mock(BlockState.class);
+        when(lower.getBlock()).thenReturn(lowerBlock);
+        when(upper.getBlock()).thenReturn(upperBlock);
+        when(lower.getBlockData()).thenReturn(lowerData);
+        when(upper.getBlockData()).thenReturn(upperData);
         Block placed = mock(Block.class);
         when(placed.getType()).thenReturn(Material.OAK_DOOR);
         BlockMultiPlaceEvent event = mock(BlockMultiPlaceEvent.class);
@@ -160,14 +211,14 @@ class TrackedPlacementTest {
         when(event.getBlockPlaced()).thenReturn(placed);
 
         List<TrackedPlacement> tracked = new ArrayList<>();
-        List<TrackedPlacement> scheduled = TrackedPlacement.trackEvent(tracked, event);
+        TrackedPlacement leader = TrackedPlacement.trackEvent(tracked, event).get(0);
 
-        assertEquals(2, scheduled.size());
-        assertEquals(2, tracked.size());
-        TrackedPlacement.restoreAll(tracked);
+        assertTrue(leader.release());
+        leader.release();
 
-        InOrder order = inOrder(upper, lower);
-        order.verify(upper).update(true, true);
-        order.verify(lower).update(true, true);
+        verify(upperBlock).setBlockData(upperData, false);
+        verify(lowerBlock).setBlockData(lowerData, false);
+        verify(lower, never()).update(anyBoolean(), anyBoolean());
+        verify(upper, never()).update(anyBoolean(), anyBoolean());
     }
 }

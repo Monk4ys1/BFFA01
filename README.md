@@ -23,7 +23,7 @@ Map spawns are set with `/bffa setmap <name>`. `bffa.admin` defaults to operator
 
 ## Installation
 
-**Do not download `BFFA01-4.1.jar` from git history or a raw GitHub URL.** That file is an old binary and does not match this source. Build with `mvn package` from the current tree only (or install a Release asset that was built from it) and verify the checksum before you put the jar on a server.
+**Do not download `BFFA01-4.1.jar` from git history or a raw GitHub URL.** That file is an old binary and does not match this source. Build with `./mvnw clean package` from the current tree only (or install a Release asset that was built from it) and verify the checksum before you put the jar on a server.
 
 Release 4.1 included `/build` and a separate `maps.yml`. This tree has neither. If you are upgrading from 4.1, copy each arena spawn into the `maps:` section of `config.yml`.
 
@@ -51,10 +51,10 @@ Plugin jars are not stored in this repository. Install a build you produced your
 
 ## Building from Source
 
-Java 21 and Maven 3.9 or newer are required. Trusted checksums are enforced from `.mvn/maven.config`.
+Java 21 is required. `./mvnw` downloads Maven 3.9.9 and checks its distribution checksum. Maven older than 3.9 ignores trusted checksums and does not fail the build, so the enforcer rejects anything below 3.9.0.
 
 ```bash
-mvn package
+./mvnw clean package
 ```
 
 The plugin jar is `target/BFFA01-<version>.jar`, where `<version>` is the version in `pom.xml`. `target/` is gitignored.
