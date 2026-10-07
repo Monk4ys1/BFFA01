@@ -11,6 +11,7 @@ import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -36,7 +37,7 @@ import java.util.UUID;
 public class GameListener implements Listener {
 
     private final BFFA01 plugin;
-    private final List<Block> placedBlocks;
+    private final List<TrackedPlacement> placedBlocks;
     private final Map<UUID, Boolean> vampireFangActive = new HashMap<>();
     private final Map<UUID, Long> lastCombatTime = new HashMap<>();
     private final Map<UUID, UUID> lastDamager = new HashMap<>();
@@ -49,8 +50,8 @@ public class GameListener implements Listener {
     }
 
     public void clearAllBlocks() {
-        for (Block block : placedBlocks) {
-            block.setType(Material.AIR);
+        for (TrackedPlacement placement : placedBlocks) {
+            placement.restore();
         }
         placedBlocks.clear();
     }
@@ -324,7 +325,7 @@ public class GameListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         if (plugin.getMapManager().isSwapping()) {
             event.setCancelled(true);
@@ -333,16 +334,20 @@ public class GameListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        Block block = event.getBlockPlaced();
-
         int safezoneY = getMapSetting("safezone-y-level", 90);
         if (player.getLocation().getY() >= safezoneY) {
             event.setCancelled(true);
-            return;
         }
+    }
 
-        // Let the block be placed, and track it
-        placedBlocks.add(block);
+    /**
+     * Tracks only a place that every plugin left uncancelled. Removal restores the
+     * replaced block state, so a rejected place is never turned into air later.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockPlaceMonitor(BlockPlaceEvent event) {
+        TrackedPlacement placement = new TrackedPlacement(event.getBlockPlaced(), event.getBlockReplacedState());
+        placedBlocks.add(placement);
 
         int delaySeconds = plugin.getConfig().getInt("block-remove-delay", 5);
         int warningTime = Math.max(1, delaySeconds - 2);
@@ -350,8 +355,8 @@ public class GameListener implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (placedBlocks.contains(block)) {
-                    block.setType(Material.REDSTONE_BLOCK);
+                if (placedBlocks.contains(placement)) {
+                    placement.block().setType(Material.REDSTONE_BLOCK);
                 }
             }
         }.runTaskLater(plugin, warningTime * 20L);
@@ -359,9 +364,8 @@ public class GameListener implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (placedBlocks.contains(block)) {
-                    block.setType(Material.AIR);
-                    placedBlocks.remove(block);
+                if (placedBlocks.remove(placement)) {
+                    placement.restore();
                 }
             }
         }.runTaskLater(plugin, delaySeconds * 20L);
@@ -788,15 +792,16 @@ public class GameListener implements Listener {
     }
 
     private void createTemporaryPlatform(Location center) {
-        List<Block> newBlocks = new ArrayList<>();
-        
+        List<TrackedPlacement> created = new ArrayList<>();
+
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
                 Block b = center.clone().add(x, 0, z).getBlock();
                 if (b.getType() == Material.AIR) {
+                    TrackedPlacement placement = new TrackedPlacement(b, b.getState());
                     b.setType(Material.SLIME_BLOCK);
-                    newBlocks.add(b);
-                    placedBlocks.add(b);
+                    created.add(placement);
+                    placedBlocks.add(placement);
                 }
             }
         }
@@ -804,10 +809,9 @@ public class GameListener implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (Block b : newBlocks) {
-                    if (b.getType() == Material.SLIME_BLOCK) {
-                        b.setType(Material.AIR);
-                        placedBlocks.remove(b);
+                for (TrackedPlacement placement : created) {
+                    if (placement.block().getType() == Material.SLIME_BLOCK && placedBlocks.remove(placement)) {
+                        placement.restore();
                     }
                 }
             }
@@ -815,17 +819,18 @@ public class GameListener implements Listener {
     }
 
     private void createTemporaryWebs(Location center) {
-        List<Block> newBlocks = new ArrayList<>();
-        
+        List<TrackedPlacement> created = new ArrayList<>();
+
         for (int x = -1; x <= 1; x++) {
             for (int y = 0; y <= 1; y++) {
                 for (int z = -1; z <= 1; z++) {
                     if (Math.abs(x) == 1 && Math.abs(z) == 1) continue; // Make it a cross shape
                     Block b = center.clone().add(x, y, z).getBlock();
                     if (b.getType() == Material.AIR) {
+                        TrackedPlacement placement = new TrackedPlacement(b, b.getState());
                         b.setType(Material.COBWEB);
-                        newBlocks.add(b);
-                        placedBlocks.add(b);
+                        created.add(placement);
+                        placedBlocks.add(placement);
                     }
                 }
             }
@@ -834,10 +839,9 @@ public class GameListener implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (Block b : newBlocks) {
-                    if (b.getType() == Material.COBWEB) {
-                        b.setType(Material.AIR);
-                        placedBlocks.remove(b);
+                for (TrackedPlacement placement : created) {
+                    if (placement.block().getType() == Material.COBWEB && placedBlocks.remove(placement)) {
+                        placement.restore();
                     }
                 }
             }

@@ -14,6 +14,13 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--
+            1.21 paper-api is published only under a SNAPSHOT coordinate. The build fails unless the
+            resolved jar is immutable build 1.21-R0.1-20240810.100446-132. Paper 26.x is Java 25.
+        -->
+        <paper.api.version>1.21-R0.1-SNAPSHOT</paper.api.version>
+        <paper.api.build>1.21-R0.1-20240810.100446-132</paper.api.build>
+        <paper.api.sha512>5556dc53bf64c9fe75613bd7ed9d4a451c45f551531c62a0fb13e473273b00c1309e3c133e8081bb3b110b427c38d39ddf36960328b50493f254e1dfe2033c02</paper.api.sha512>
     </properties>
 
     <build>
@@ -44,11 +51,66 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-paper-api-for-pin</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <overWriteReleases>true</overWriteReleases>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>io.papermc.paper</groupId>
+                                    <artifactId>paper-api</artifactId>
+                                    <version>${paper.api.version}</version>
+                                    <outputDirectory>${project.build.directory}/paper-api-pin</outputDirectory>
+                                    <destFileName>paper-api.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>verify-paper-api-pin</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <checksum file="${project.build.directory}/paper-api-pin/paper-api.jar" algorithm="SHA-512" property="resolved.paper.sha512"/>
+                                <condition property="paper.pin.ok">
+                                    <equals arg1="${resolved.paper.sha512}" arg2="${paper.api.sha512}" casesensitive="false"/>
+                                </condition>
+                                <fail unless="paper.pin.ok" message="paper-api is not pinned build ${paper.api.build}. Refusing to compile against a different snapshot."/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
-                <filtering>true</filtering>
+                <filtering>false</filtering>
             </resource>
         </resources>
     </build>
@@ -57,6 +119,14 @@
         <repository>
             <id>papermc-repo</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
+            <releases>
+                <enabled>true</enabled>
+                <checksumPolicy>fail</checksumPolicy>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+                <checksumPolicy>fail</checksumPolicy>
+            </snapshots>
         </repository>
     </repositories>
 
@@ -64,8 +134,20 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21-R0.1-SNAPSHOT</version>
+            <version>${paper.api.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.14.2</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>
