@@ -47,7 +47,29 @@ class DataManagerTest {
         data.flush();
 
         assertArrayEquals(original, Files.readAllBytes(dataFile));
+        assertArrayEquals(original, Files.readAllBytes(dataFolder.resolve("data.yml.corrupt")));
         assertEquals(0, data.getKills(player));
+    }
+
+    @Test
+    void missingFileDoesNotCreateACorruptCopy() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+
+        new DataManager(plugin(dataFolder));
+
+        assertFalse(Files.exists(dataFolder.resolve("data.yml.corrupt")));
+    }
+
+    @Test
+    void failedSavesBackOffAndThenCap() {
+        assertEquals(20L, DataManager.backoffTicks(1));
+        assertEquals(40L, DataManager.backoffTicks(2));
+        assertEquals(80L, DataManager.backoffTicks(3));
+        assertEquals(160L, DataManager.backoffTicks(4));
+        assertEquals(320L, DataManager.backoffTicks(5));
+        assertEquals(640L, DataManager.backoffTicks(6));
+        assertEquals(640L, DataManager.backoffTicks(7));
     }
 
     @Test

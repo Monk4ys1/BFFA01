@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Per-key cooldown measured with a caller-supplied clock.
+ * The production kit save uses {@link System#nanoTime()}.
  */
 public final class KeyedCooldown {
 
@@ -22,22 +23,33 @@ public final class KeyedCooldown {
         return windowMillis;
     }
 
+    public int size() {
+        return lastAccepted.size();
+    }
+
     /**
-     * @return milliseconds the caller must still wait, or 0 when the action is allowed
+     * @return time the caller must still wait, in the clock's unit, or 0 when the action is allowed
      */
     public long remainingMillis(UUID key, long now) {
+        purgeExpired(now);
         Long previous = lastAccepted.get(key);
         if (previous == null) {
             return 0L;
         }
         long elapsed = now - previous;
         if (elapsed >= windowMillis) {
+            lastAccepted.remove(key, previous);
             return 0L;
         }
         return windowMillis - elapsed;
     }
 
     public void markUsed(UUID key, long now) {
+        purgeExpired(now);
         lastAccepted.put(key, now);
+    }
+
+    private void purgeExpired(long now) {
+        lastAccepted.entrySet().removeIf(entry -> now - entry.getValue() >= windowMillis);
     }
 }

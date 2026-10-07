@@ -45,11 +45,11 @@ class SaveKitCommandTest {
         DataManager data = mock(DataManager.class);
         when(data.saveKitLayout(eq(playerId), any())).thenReturn(true);
         Player player = player(playerId);
-        SaveKitCommand command = command(data, new KeyedCooldown(SaveKitCommand.SAVE_COOLDOWN_MILLIS), now, player);
+        SaveKitCommand command = command(data, new KeyedCooldown(SaveKitCommand.SAVE_COOLDOWN_NANOS), now, player);
 
         command.onCommand(player, null, "savekit", new String[0]);
         command.onCommand(player, null, "savekit", new String[0]);
-        now.addAndGet(SaveKitCommand.SAVE_COOLDOWN_MILLIS);
+        now.addAndGet(SaveKitCommand.SAVE_COOLDOWN_NANOS);
         command.onCommand(player, null, "savekit", new String[0]);
 
         verify(player).sendMessage(contains("Please wait a moment"));
@@ -63,7 +63,7 @@ class SaveKitCommandTest {
         DataManager data = mock(DataManager.class);
         when(data.saveKitLayout(eq(playerId), any())).thenReturn(false, true);
         Player player = player(playerId);
-        SaveKitCommand command = command(data, new KeyedCooldown(SaveKitCommand.SAVE_COOLDOWN_MILLIS), now, player);
+        SaveKitCommand command = command(data, new KeyedCooldown(SaveKitCommand.SAVE_COOLDOWN_NANOS), now, player);
 
         command.onCommand(player, null, "savekit", new String[0]);
         command.onCommand(player, null, "savekit", new String[0]);
@@ -75,7 +75,7 @@ class SaveKitCommandTest {
 
     @Test
     void cooldownConstantStaysShort() {
-        assertEquals(3_000L, SaveKitCommand.SAVE_COOLDOWN_MILLIS);
+        assertEquals(3_000_000_000L, SaveKitCommand.SAVE_COOLDOWN_NANOS);
     }
 
     private static SaveKitCommand command(DataManager data, UUID playerId, AtomicLong now) {

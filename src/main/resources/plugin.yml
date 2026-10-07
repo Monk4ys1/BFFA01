@@ -1,5 +1,5 @@
 name: BFFA01
-version: '3.4'
+version: '@project.version@'
 main: infinode.org.example.bFFA01.BFFA01
 api-version: '1.21'
 commands:

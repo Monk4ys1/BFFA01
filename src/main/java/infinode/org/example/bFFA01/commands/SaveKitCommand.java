@@ -13,14 +13,14 @@ import java.util.function.LongSupplier;
 
 public class SaveKitCommand implements CommandExecutor {
 
-    static final long SAVE_COOLDOWN_MILLIS = 3_000L;
+    static final long SAVE_COOLDOWN_NANOS = 3_000_000_000L;
 
     private final BFFA01 plugin;
     private final KeyedCooldown cooldown;
     private final LongSupplier clock;
 
     public SaveKitCommand(BFFA01 plugin) {
-        this(plugin, new KeyedCooldown(SAVE_COOLDOWN_MILLIS), System::currentTimeMillis);
+        this(plugin, new KeyedCooldown(SAVE_COOLDOWN_NANOS), System::nanoTime);
     }
 
     SaveKitCommand(BFFA01 plugin, KeyedCooldown cooldown, LongSupplier clock) {

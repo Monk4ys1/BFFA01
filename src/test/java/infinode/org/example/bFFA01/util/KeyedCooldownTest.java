@@ -27,4 +27,17 @@ class KeyedCooldownTest {
     void rejectsANonPositiveWindow() {
         assertThrows(IllegalArgumentException.class, () -> new KeyedCooldown(0L));
     }
+
+    @Test
+    void expiredKeysAreDropped() {
+        KeyedCooldown cooldown = new KeyedCooldown(3_000L);
+        UUID player = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        cooldown.markUsed(player, 1_000L);
+        cooldown.markUsed(other, 1_000L);
+
+        assertEquals(2, cooldown.size());
+        assertEquals(0L, cooldown.remainingMillis(player, 4_000L));
+        assertEquals(0, cooldown.size());
+    }
 }

@@ -51,7 +51,7 @@ Plugin jars are not stored in this repository. Install a build you produced your
 
 ## Building from Source
 
-Java 21 and Maven are required.
+Java 21 and Maven 3.9 or newer are required. Trusted checksums are enforced from `.mvn/maven.config`.
 
 ```bash
 mvn package
@@ -59,7 +59,7 @@ mvn package
 
 The plugin jar is `target/BFFA01-<version>.jar`, where `<version>` is the version in `pom.xml`. `target/` is gitignored.
 
-The Paper API dependency stays on the Java 21 `1.21` line. Maven fails the build if repository checksums do not match, and it checks the resolved jar against immutable build `1.21-R0.1-20240810.100446-132`. Paper 26.x artifacts require Java 25 and are not used here.
+The Paper API dependency is the immutable Java 21 build `1.21-R0.1-20240810.100446-132`. Maven Resolver trusted checksums in `.mvn/` cover every resolved artifact, including POMs, and the build also checks that jar's SHA-512. Paper 26.x artifacts require Java 25 and are not used here.
 
 To publish that jar, create a GitHub Release and attach both the jar and a checksum file:
 
