@@ -47,8 +47,14 @@ public final class BFFA01 extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (dataManager != null) {
-            dataManager.flush();
+        try {
+            if (gameListener != null) {
+                gameListener.clearAllBlocks();
+            }
+        } finally {
+            if (dataManager != null) {
+                dataManager.flush();
+            }
         }
     }
 

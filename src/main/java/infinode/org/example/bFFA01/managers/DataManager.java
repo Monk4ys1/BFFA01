@@ -6,7 +6,11 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,6 +26,7 @@ public class DataManager {
     private BukkitTask pendingTask;
     private long latestGeneration;
     private long committedGeneration;
+    private int consecutiveFailures;
 
     public DataManager(BFFA01 plugin) {
         this.plugin = plugin;
@@ -29,6 +34,7 @@ public class DataManager {
         this.store = AtomicYamlStore.open(dataFile);
         if (store.hadLoadError()) {
             plugin.getLogger().severe("Refusing to load data.yml. Saves are disabled so the existing file is not overwritten.");
+            preserveCorruptFile(dataFile);
             return;
         }
         if (!dataFile.toFile().exists()) {
@@ -207,14 +213,47 @@ public class DataManager {
         return store.isWritable() && uuid != null;
     }
 
+    /**
+     * Delay after a failed write: 20, 40, 80, 160, 320, then 640 ticks.
+     */
+    static long backoffTicks(int consecutiveFailures) {
+        int attempt = Math.max(1, consecutiveFailures);
+        int shift = Math.min(attempt - 1, 5);
+        return SAVE_DELAY_TICKS << shift;
+    }
+
+    private void preserveCorruptFile(Path dataFile) {
+        if (!Files.isRegularFile(dataFile)) {
+            return;
+        }
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
+                .withZone(ZoneOffset.UTC)
+                .format(Instant.now());
+        Path corrupt = dataFile.resolveSibling("data.yml." + stamp + ".corrupt");
+        int suffix = 1;
+        while (Files.exists(corrupt)) {
+            corrupt = dataFile.resolveSibling("data.yml." + stamp + "-" + suffix + ".corrupt");
+            suffix++;
+        }
+        try {
+            Files.copy(dataFile, corrupt);
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Could not copy corrupt data.yml: " + ex.getMessage());
+        }
+    }
+
     private void requestSave() {
+        requestSave(SAVE_DELAY_TICKS);
+    }
+
+    private void requestSave(long delayTicks) {
         if (!store.isWritable()) {
             return;
         }
         if (!gate.markAndShouldSchedule()) {
             return;
         }
-        pendingTask = plugin.getServer().getScheduler().runTaskLater(plugin, this::snapshotAndScheduleWrite, SAVE_DELAY_TICKS);
+        pendingTask = plugin.getServer().getScheduler().runTaskLater(plugin, this::snapshotAndScheduleWrite, delayTicks);
     }
 
     private void snapshotAndScheduleWrite() {
@@ -244,6 +283,7 @@ public class DataManager {
     private void writeAsync(long generation, String yaml) {
         IOException error = null;
         boolean retry = false;
+        long retryDelay = SAVE_DELAY_TICKS;
         synchronized (writeLock) {
             if (generation != latestGeneration) {
                 return;
@@ -251,9 +291,12 @@ public class DataManager {
             try {
                 store.writeSnapshot(yaml);
                 committedGeneration = generation;
+                consecutiveFailures = 0;
             } catch (IOException ex) {
                 error = ex;
                 retry = true;
+                consecutiveFailures++;
+                retryDelay = backoffTicks(consecutiveFailures);
             }
         }
         if (!retry) {
@@ -261,11 +304,12 @@ public class DataManager {
         }
         gate.markDirtyAgain();
         IOException failed = error;
+        long delayTicks = retryDelay;
         try {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 plugin.getLogger().warning("Failed to save data.yml: " + failed.getMessage());
                 if (plugin.isEnabled()) {
-                    requestSave();
+                    requestSave(delayTicks);
                 }
             });
         } catch (RuntimeException ex) {

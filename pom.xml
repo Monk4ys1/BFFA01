@@ -15,24 +15,96 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!--
-            1.21 paper-api is published only under a SNAPSHOT coordinate. The build fails unless the
-            resolved jar is immutable build 1.21-R0.1-20240810.100446-132. Paper 26.x is Java 25.
+            Unique snapshot of paper-api build 132 (2024-08-10). Resolver stores it under the
+            1.21-R0.1-SNAPSHOT directory. Paper 26.x is Java 25.
         -->
-        <paper.api.version>1.21-R0.1-SNAPSHOT</paper.api.version>
-        <paper.api.build>1.21-R0.1-20240810.100446-132</paper.api.build>
+        <paper.api.version>1.21-R0.1-20240810.100446-132</paper.api.version>
         <paper.api.sha512>5556dc53bf64c9fe75613bd7ed9d4a451c45f551531c62a0fb13e473273b00c1309e3c133e8081bb3b110b427c38d39ddf36960328b50493f254e1dfe2033c02</paper.api.sha512>
+        <!-- Fixed zip entry time so the same source produces the same jar bytes. -->
+        <project.build.outputTimestamp>2024-08-10T10:04:46Z</project.build.outputTimestamp>
     </properties>
 
     <build>
         <defaultGoal>clean package</defaultGoal>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.3.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.4.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.1.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <requireMavenVersion>
+                            <version>[3.9.0,)</version>
+                        </requireMavenVersion>
+                    </rules>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>enforce-maven-on-clean</id>
+                        <phase>pre-clean</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>enforce-maven</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
                 <configuration>
                     <source>21</source>
                     <target>21</target>
+                    <proc>none</proc>
                     <compilerArgs>
                         <arg>-parameters</arg>
                     </compilerArgs>
@@ -54,7 +126,16 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <configuration>
+                    <useDefaultDelimiters>false</useDefaultDelimiters>
+                    <delimiters>
+                        <delimiter>@</delimiter>
+                    </delimiters>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -100,7 +181,7 @@
                                 <condition property="paper.pin.ok">
                                     <equals arg1="${resolved.paper.sha512}" arg2="${paper.api.sha512}" casesensitive="false"/>
                                 </condition>
-                                <fail unless="paper.pin.ok" message="paper-api is not pinned build ${paper.api.build}. Refusing to compile against a different snapshot."/>
+                                <fail unless="paper.pin.ok" message="paper-api is not pinned build ${paper.api.version}. Refusing to compile against a different snapshot."/>
                             </target>
                         </configuration>
                     </execution>
@@ -111,6 +192,16 @@
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>false</filtering>
+                <excludes>
+                    <exclude>plugin.yml</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>plugin.yml</include>
+                </includes>
             </resource>
         </resources>
     </build>

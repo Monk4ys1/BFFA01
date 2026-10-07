@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -47,7 +49,38 @@ class DataManagerTest {
         data.flush();
 
         assertArrayEquals(original, Files.readAllBytes(dataFile));
+        assertEquals(1, corruptCopies(dataFolder).size());
+        assertArrayEquals(original, Files.readAllBytes(corruptCopies(dataFolder).get(0)));
+        assertFalse(Files.exists(dataFolder.resolve("data.yml.corrupt")));
+
+        new DataManager(plugin);
+        List<Path> copies = corruptCopies(dataFolder);
+        assertEquals(2, copies.size());
+        for (Path copy : copies) {
+            assertArrayEquals(original, Files.readAllBytes(copy));
+        }
         assertEquals(0, data.getKills(player));
+    }
+
+    @Test
+    void missingFileDoesNotCreateACorruptCopy() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+
+        new DataManager(plugin(dataFolder));
+
+        assertTrue(corruptCopies(dataFolder).isEmpty());
+    }
+
+    @Test
+    void failedSavesBackOffAndThenCap() {
+        assertEquals(20L, DataManager.backoffTicks(1));
+        assertEquals(40L, DataManager.backoffTicks(2));
+        assertEquals(80L, DataManager.backoffTicks(3));
+        assertEquals(160L, DataManager.backoffTicks(4));
+        assertEquals(320L, DataManager.backoffTicks(5));
+        assertEquals(640L, DataManager.backoffTicks(6));
+        assertEquals(640L, DataManager.backoffTicks(7));
     }
 
     @Test
@@ -60,6 +93,16 @@ class DataManagerTest {
         assertTrue(data.isWritable());
         assertTrue(Files.isRegularFile(dataFolder.resolve("data.yml")));
         data.flush();
+    }
+
+    private static List<Path> corruptCopies(Path dataFolder) throws IOException {
+        List<Path> copies = new ArrayList<>();
+        try (var stream = Files.newDirectoryStream(dataFolder, "data.yml.*.corrupt")) {
+            for (Path path : stream) {
+                copies.add(path);
+            }
+        }
+        return copies;
     }
 
     private static BFFA01 plugin(Path dataFolder) {

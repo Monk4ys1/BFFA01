@@ -9,6 +9,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -50,10 +51,7 @@ public class GameListener implements Listener {
     }
 
     public void clearAllBlocks() {
-        for (TrackedPlacement placement : placedBlocks) {
-            placement.restore();
-        }
-        placedBlocks.clear();
+        TrackedPlacement.restoreAll(placedBlocks);
     }
 
     private int getMapSetting(String key, int fallbackKey) {
@@ -172,6 +170,10 @@ public class GameListener implements Listener {
         // Custom Join Message
         String joinMsg = plugin.getConfig().getString("messages.join", "&8[&a+&8] &7%player%");
         event.setJoinMessage(ChatColor.translateAlternateColorCodes('&', joinMsg.replace("%player%", player.getName())));
+
+        if (!plugin.getDataManager().isWritable() && player.hasPermission("bffa.admin")) {
+            player.sendMessage(ChatColor.RED + "Player data was not loaded. data.yml was left unchanged.");
+        }
 
         plugin.getMapManager().teleportToCurrentSpawn(player);
         plugin.getScoreboardManager().setScoreboard(player);
@@ -346,26 +348,36 @@ public class GameListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlaceMonitor(BlockPlaceEvent event) {
-        TrackedPlacement placement = new TrackedPlacement(event.getBlockPlaced(), event.getBlockReplacedState());
-        placedBlocks.add(placement);
+        for (TrackedPlacement placement : TrackedPlacement.trackEvent(placedBlocks, event)) {
+            scheduleRemoval(placement);
+        }
+    }
 
+    private void scheduleRemoval(TrackedPlacement placement) {
         int delaySeconds = plugin.getConfig().getInt("block-remove-delay", 5);
         int warningTime = Math.max(1, delaySeconds - 2);
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (placedBlocks.contains(placement)) {
-                    placement.block().setType(Material.REDSTONE_BLOCK);
+                if (!placedBlocks.contains(placement) || !placement.shouldWarn()) {
+                    return;
                 }
+                if (!placement.stillOurs()) {
+                    return;
+                }
+                placement.applyWarning();
             }
         }.runTaskLater(plugin, warningTime * 20L);
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (placedBlocks.remove(placement)) {
-                    placement.restore();
+                if (!placedBlocks.contains(placement)) {
+                    return;
+                }
+                if (placement.release()) {
+                    placedBlocks.removeAll(placement.members());
                 }
             }
         }.runTaskLater(plugin, delaySeconds * 20L);
@@ -798,10 +810,10 @@ public class GameListener implements Listener {
             for (int z = -1; z <= 1; z++) {
                 Block b = center.clone().add(x, 0, z).getBlock();
                 if (b.getType() == Material.AIR) {
-                    TrackedPlacement placement = new TrackedPlacement(b, b.getState());
+                    BlockState replaced = b.getState();
+                    TrackedPlacement placement = TrackedPlacement.track(placedBlocks, b, replaced, Material.SLIME_BLOCK);
                     b.setType(Material.SLIME_BLOCK);
                     created.add(placement);
-                    placedBlocks.add(placement);
                 }
             }
         }
@@ -810,8 +822,8 @@ public class GameListener implements Listener {
             @Override
             public void run() {
                 for (TrackedPlacement placement : created) {
-                    if (placement.block().getType() == Material.SLIME_BLOCK && placedBlocks.remove(placement)) {
-                        placement.restore();
+                    if (placedBlocks.contains(placement) && placement.release()) {
+                        placedBlocks.removeAll(placement.members());
                     }
                 }
             }
@@ -827,10 +839,10 @@ public class GameListener implements Listener {
                     if (Math.abs(x) == 1 && Math.abs(z) == 1) continue; // Make it a cross shape
                     Block b = center.clone().add(x, y, z).getBlock();
                     if (b.getType() == Material.AIR) {
-                        TrackedPlacement placement = new TrackedPlacement(b, b.getState());
+                        BlockState replaced = b.getState();
+                        TrackedPlacement placement = TrackedPlacement.track(placedBlocks, b, replaced, Material.COBWEB);
                         b.setType(Material.COBWEB);
                         created.add(placement);
-                        placedBlocks.add(placement);
                     }
                 }
             }
@@ -840,8 +852,8 @@ public class GameListener implements Listener {
             @Override
             public void run() {
                 for (TrackedPlacement placement : created) {
-                    if (placement.block().getType() == Material.COBWEB && placedBlocks.remove(placement)) {
-                        placement.restore();
+                    if (placedBlocks.contains(placement) && placement.release()) {
+                        placedBlocks.removeAll(placement.members());
                     }
                 }
             }
