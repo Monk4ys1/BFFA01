@@ -8,6 +8,7 @@ import infinode.org.example.bFFA01.compat.ProfileBans;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
 import infinode.org.example.bFFA01.compat.Sounds;
 import infinode.org.example.bFFA01.shop.ShopOffer;
+import infinode.org.example.bFFA01.ui.menu.MenuHolder;
 import infinode.org.example.bFFA01.text.TextLines;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
@@ -166,6 +167,11 @@ public class GameListener implements Listener {
             String message = TextLines.render(plugin, "combat-actionbar", "&cIn combat: &e%seconds%s",
                     Map.of("seconds", seconds));
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+        } else if (plugin.presentation() != null) {
+            plugin.presentation().idleActionBar(player);
+        }
+        if (plugin.presentation() != null) {
+            plugin.presentation().tab(player, false);
         }
 
         Scoreboard board = player.getScoreboard();
@@ -193,12 +199,18 @@ public class GameListener implements Listener {
 
         plugin.getMapManager().teleportToCurrentSpawn(player);
         plugin.getScoreboardManager().setScoreboard(player);
+        if (plugin.presentation() != null) {
+            plugin.presentation().onJoin(player);
+        }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         String name = player.getName();
+        if (plugin.presentation() != null) {
+            plugin.presentation().onQuit(player);
+        }
         forgetTeams(player, name);
 
         long now = System.currentTimeMillis();
@@ -478,9 +490,15 @@ public class GameListener implements Listener {
                     "&c%player% &7was killed by &a%killer%&7.",
                     Map.of("player", dead.getName(), "killer", killer.getName())));
             onEntity(killer, () -> creditKill(killer, dead, false));
+            if (plugin.presentation() != null) {
+                plugin.presentation().onDeath(dead, killer.getName());
+            }
         } else {
             event.setDeathMessage(TextLines.prefixed(plugin, "player-died",
                     "&c%player% &7died.", Map.of("player", dead.getName())));
+            if (plugin.presentation() != null) {
+                plugin.presentation().onDeath(dead, "");
+            }
         }
 
         later(dead, () -> {
@@ -494,6 +512,9 @@ public class GameListener implements Listener {
         plugin.getDataManager().rememberName(killer.getUniqueId(), killer.getName());
         plugin.getDataManager().addKill(killer.getUniqueId());
         plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
+        if (plugin.presentation() != null) {
+            plugin.presentation().onKill(killer, dead);
+        }
         plugin.getKillstreakManager().addKill(killer);
         Health.fill(killer);
         giveKillRewards(killer);
@@ -570,7 +591,7 @@ public class GameListener implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         Inventory top = InventoryViews.top(event);
-        if (top != null && top.getHolder() instanceof ShopInventoryHolder) {
+        if (top != null && (top.getHolder() instanceof ShopInventoryHolder || top.getHolder() instanceof MenuHolder)) {
             event.setCancelled(true);
             return;
         }
@@ -591,7 +612,7 @@ public class GameListener implements Listener {
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
         Inventory top = InventoryViews.top(event);
-        if (top != null && top.getHolder() instanceof ShopInventoryHolder) {
+        if (top != null && (top.getHolder() instanceof ShopInventoryHolder || top.getHolder() instanceof MenuHolder)) {
             event.setCancelled(true);
         }
     }

@@ -1,0 +1,359 @@
+# Chest menus. Slots are 0-53 in a 6-row chest so Geyser can click them.
+# Left click and right click do the same thing. Titles should stay short.
+filler: GRAY_STAINED_GLASS_PANE
+frame:
+  - CYAN_STAINED_GLASS_PANE
+  - LIGHT_BLUE_STAINED_GLASS_PANE
+  - BLUE_STAINED_GLASS_PANE
+  - PURPLE_STAINED_GLASS_PANE
+  - MAGENTA_STAINED_GLASS_PANE
+
+menus:
+  hub:
+    rows: 5
+    title: menu-hub-title
+    items:
+      shop:
+        slot: 20
+        material: EMERALD
+        name: menu-hub-shop
+        lore:
+          - menu-hub-shop-lore
+        action: open:shop
+      kit:
+        slot: 22
+        material: CHEST
+        name: menu-hub-kit
+        lore:
+          - menu-hub-kit-lore
+        action: open:kit
+      maps:
+        slot: 24
+        material: MAP
+        name: menu-hub-maps
+        lore:
+          - menu-hub-maps-lore
+        action: open:maps
+      stats:
+        slot: 30
+        material: DIAMOND
+        name: menu-hub-stats
+        lore:
+          - menu-hub-stats-lore
+        action: open:stats
+      settings:
+        slot: 32
+        material: COMPARATOR
+        name: menu-hub-settings
+        lore:
+          - menu-hub-settings-lore
+        action: open:settings
+      close:
+        slot: 40
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+
+  shop:
+    rows: 6
+    title: menu-shop-title
+    content-slots: [10, 11, 12, 13, 14, 15, 16, 19, 25, 28, 29, 30, 31, 32, 33, 34]
+    items:
+      coins:
+        slot: 4
+        material: SUNFLOWER
+        name: menu-shop-coins
+        lore:
+          - menu-shop-coins-lore
+        action: none
+      emblem:
+        slot: 22
+        material: NETHER_STAR
+        name: menu-shop-emblem
+        lore:
+          - menu-shop-emblem-lore
+        action: none
+      back:
+        slot: 45
+        material: ARROW
+        name: menu-back
+        lore:
+          - menu-back-lore
+        action: back
+      prev:
+        slot: 48
+        material: SPECTRAL_ARROW
+        name: menu-prev
+        lore:
+          - menu-prev-lore
+        action: page:prev
+      close:
+        slot: 49
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+      next:
+        slot: 50
+        material: SPECTRAL_ARROW
+        name: menu-next
+        lore:
+          - menu-next-lore
+        action: page:next
+
+  kit:
+    rows: 6
+    title: menu-kit-title
+    layout-slots: [18, 19, 20, 21, 22, 23, 24, 25, 26]
+    items:
+      hint:
+        slot: 4
+        material: BOOK
+        name: menu-kit-hint-title
+        lore:
+          - menu-kit-hint
+        action: none
+      save:
+        slot: 38
+        material: LIME_DYE
+        name: menu-kit-save
+        lore:
+          - menu-kit-save-lore
+        action: kit:save
+      reset:
+        slot: 42
+        material: RED_DYE
+        name: menu-kit-reset
+        lore:
+          - menu-kit-reset-lore
+        action: kit:reset
+      back:
+        slot: 45
+        material: ARROW
+        name: menu-back
+        lore:
+          - menu-back-lore
+        action: back
+      close:
+        slot: 49
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+
+  maps:
+    rows: 6
+    title: menu-maps-title
+    content-slots: [10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34]
+    items:
+      info:
+        slot: 4
+        material: COMPASS
+        name: menu-maps-info
+        lore:
+          - menu-maps-info-lore
+        action: none
+      back:
+        slot: 45
+        material: ARROW
+        name: menu-back
+        lore:
+          - menu-back-lore
+        action: back
+      prev:
+        slot: 48
+        material: SPECTRAL_ARROW
+        name: menu-prev
+        lore:
+          - menu-prev-lore
+        action: page:prev
+      close:
+        slot: 49
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+      next:
+        slot: 50
+        material: SPECTRAL_ARROW
+        name: menu-next
+        lore:
+          - menu-next-lore
+        action: page:next
+
+  stats:
+    rows: 6
+    title: menu-stats-title
+    content-slots: [10, 11, 12, 13, 14, 15, 16, 28, 29, 30, 31, 32, 33, 34]
+    items:
+      kills:
+        slot: 19
+        material: IRON_SWORD
+        name: menu-stats-kills
+        lore:
+          - menu-stats-kills-lore
+        action: page0
+      deaths:
+        slot: 20
+        material: SKELETON_SKULL
+        name: menu-stats-deaths
+        lore:
+          - menu-stats-deaths-lore
+        action: page0
+      kd:
+        slot: 21
+        material: GOLDEN_SWORD
+        name: menu-stats-kd
+        lore:
+          - menu-stats-kd-lore
+        action: page0
+      coins:
+        slot: 22
+        material: SUNFLOWER
+        name: menu-stats-coins
+        lore:
+          - menu-stats-coins-lore
+        action: page0
+      streak:
+        slot: 23
+        material: BLAZE_POWDER
+        name: menu-stats-streak
+        lore:
+          - menu-stats-streak-lore
+        action: page0
+      board:
+        slot: 25
+        material: BOOK
+        name: menu-stats-board
+        lore:
+          - menu-stats-board-lore
+        action: page:next
+      back:
+        slot: 45
+        material: ARROW
+        name: menu-back
+        lore:
+          - menu-back-lore
+        action: back
+      prev:
+        slot: 48
+        material: SPECTRAL_ARROW
+        name: menu-prev
+        lore:
+          - menu-prev-lore
+        action: page:prev
+      close:
+        slot: 49
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+      next:
+        slot: 50
+        material: SPECTRAL_ARROW
+        name: menu-next
+        lore:
+          - menu-next-lore
+        action: page:next
+
+  settings:
+    rows: 6
+    title: menu-settings-title
+    items:
+      scoreboard:
+        slot: 20
+        material: PAINTING
+        name: menu-settings-scoreboard
+        lore:
+          - menu-settings-scoreboard-lore
+        action: toggle:scoreboard
+      bossbar:
+        slot: 22
+        material: DRAGON_HEAD
+        name: menu-settings-bossbar
+        lore:
+          - menu-settings-bossbar-lore
+        action: toggle:bossbar
+      actionbar:
+        slot: 24
+        material: NAME_TAG
+        name: menu-settings-actionbar
+        lore:
+          - menu-settings-actionbar-lore
+        action: toggle:actionbar
+      effect:
+        slot: 31
+        material: FIREWORK_ROCKET
+        name: menu-settings-effect
+        lore:
+          - menu-settings-effect-lore
+        action: cycle:effect
+      back:
+        slot: 45
+        material: ARROW
+        name: menu-back
+        lore:
+          - menu-back-lore
+        action: back
+      close:
+        slot: 49
+        material: BARRIER
+        name: menu-close
+        lore:
+          - menu-close-lore
+        action: close
+
+shop-categories:
+  upgrades:
+    slot: 20
+    material: IRON_SWORD
+    name: shop-cat-upgrades
+    lore:
+      - shop-cat-upgrades-lore
+    offers:
+      - sharpness
+      - protection
+      - powerbow
+      - knockback2
+      - featherfalling
+      - punchbow
+  combat:
+    slot: 21
+    material: FIRE_CHARGE
+    name: shop-cat-combat
+    lore:
+      - shop-cat-combat-lore
+    offers:
+      - fireball
+      - tnt
+      - vampire
+      - switcher
+      - web
+  movement:
+    slot: 23
+    material: FEATHER
+    name: shop-cat-movement
+    lore:
+      - shop-cat-movement-lore
+    offers:
+      - pearl
+      - grapple
+      - jump
+      - speed
+      - platform
+  utility:
+    slot: 24
+    material: COMPASS
+    name: shop-cat-utility
+    lore:
+      - shop-cat-utility-lore
+    offers:
+      - apple
+      - tracker
+      - invis

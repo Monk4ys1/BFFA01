@@ -47,6 +47,9 @@ public class KillstreakManager {
             announce("killstreak-broadcast", "&6%player% is on a %streak% Killstreak!",
                     Map.of("player", player.getName(), "streak", Integer.toString(streak)));
         }
+        if (plugin.presentation() != null) {
+            plugin.presentation().onStreak(player, streak);
+        }
     }
 
     public void resetStreak(Player player) {

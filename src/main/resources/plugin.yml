@@ -34,6 +34,18 @@ commands:
     description: Open the BuildFFA shop
     usage: "/shop"
     permission: bffa.shop
+  menu:
+    description: Open the BuildFFA menu
+    usage: "/menu"
+    permission: bffa.menu
+  maps:
+    description: Vote for the next map
+    usage: "/maps"
+    permission: bffa.maps
+  settings:
+    description: Open display and cosmetic settings
+    usage: "/settings"
+    permission: bffa.settings
 
 permissions:
   bffa.admin:
@@ -71,4 +83,13 @@ permissions:
     default: true
   bffa.shop:
     description: Open the shop
+    default: true
+  bffa.menu:
+    description: Open the main menu
+    default: true
+  bffa.maps:
+    description: Vote for the next map
+    default: true
+  bffa.settings:
+    description: Change display and kill effects
     default: true

@@ -3,21 +3,24 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
 import infinode.org.example.bFFA01.hooks.PlaceholderResolver;
-import infinode.org.example.bFFA01.text.MiniText;
+import infinode.org.example.bFFA01.text.Messages;
+import infinode.org.example.bFFA01.ui.ClockText;
+import infinode.org.example.bFFA01.ui.Presentation;
+import infinode.org.example.bFFA01.ui.scoreboard.SidebarFit;
+import infinode.org.example.bFFA01.ui.scoreboard.SidebarWriter;
 import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
 import java.io.File;
 import java.util.List;
-import java.util.Map;
 
 public class ScoreboardManager {
     private final BFFA01 plugin;
@@ -39,16 +42,25 @@ public class ScoreboardManager {
     }
 
     public void setScoreboard(Player player) {
+        Presentation presentation = plugin.presentation();
+        if (presentation != null && !presentation.preferences().scoreboard(player.getUniqueId())) {
+            if (Bukkit.getScoreboardManager() != null) {
+                player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+            }
+            return;
+        }
+        if (Bukkit.getScoreboardManager() == null) {
+            return;
+        }
         Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-        String title = MiniText.limit(MiniText.render(config.getString("title", "&b&lBuildFFA"), Map.of()), 128);
-        Objective obj = board.registerNewObjective("bffa", "dummy", title);
-        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-
         List<String> lines = config.getStringList("lines");
+        Objective obj = board.registerNewObjective("bffa", "dummy", "BuildFFA");
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+        SidebarWriter.title(obj, themed(config.getString("title", "<bold>BuildFFA")));
+
         for (int i = 0; i < lines.size(); i++) {
-            String teamName = "line" + i;
-            Team team = board.registerNewTeam(teamName);
-            String entry = ChatColor.values()[i % ChatColor.values().length].toString() + ChatColor.RESET;
+            Team team = board.registerNewTeam("line" + i);
+            String entry = SidebarFit.entry(i);
             team.addEntry(entry);
             obj.getScore(entry).setScore(lines.size() - i);
         }
@@ -67,33 +79,55 @@ public class ScoreboardManager {
             return;
         }
 
+        Presentation presentation = plugin.presentation();
+        if (presentation != null && !presentation.preferences().scoreboard(player.getUniqueId())) {
+            return;
+        }
         List<String> lines = config.getStringList("lines");
+        SidebarWriter.title(obj, themed(config.getString("title", "<bold>BuildFFA")));
 
         int kills = plugin.getDataManager().getKills(player.getUniqueId());
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
+        int coins = plugin.getDataManager().getCoins(player.getUniqueId());
         int streak = plugin.getKillstreakManager().getStreak(player);
         double kd = deaths == 0 ? kills : (double) kills / deaths;
         String currentMap = plugin.getMapManager().getCurrentMap() != null
                 ? MapNames.sanitizeLabel(plugin.getMapManager().getCurrentMap())
                 : "None";
+        int seconds = plugin.getMapManager() == null ? 0 : plugin.getMapManager().secondsRemaining();
 
         PlaceholderResolver resolver = resolver();
         for (int i = 0; i < lines.size(); i++) {
-            String rawLine = lines.get(i);
-            String processedLine = rawLine
+            String processedLine = lines.get(i)
                     .replace("%kills%", String.valueOf(kills))
                     .replace("%deaths%", String.valueOf(deaths))
                     .replace("%kd%", String.format("%.2f", kd))
                     .replace("%streak%", String.valueOf(streak))
+                    .replace("%coins%", String.valueOf(coins))
+                    .replace("%players%", String.valueOf(Bukkit.getOnlinePlayers().size()))
+                    .replace("%time%", ClockText.mmss(seconds))
                     .replace("%map%", currentMap);
             processedLine = resolver.apply(player, processedLine);
-            processedLine = MiniText.render(processedLine, Map.of());
+            processedLine = themed(processedLine);
 
+            String entry = SidebarFit.entry(i);
             Team team = board.getTeam("line" + i);
-            if (team != null) {
-                team.setPrefix(MiniText.limit(processedLine, 64));
+            if (team == null) {
+                team = board.registerNewTeam("line" + i);
+                team.addEntry(entry);
+                obj.getScore(entry).setScore(lines.size() - i);
             }
+            Score score = obj.getScore(entry);
+            SidebarWriter.line(team, score, processedLine, i);
         }
+    }
+
+    private String themed(String line) {
+        Messages messages = plugin.getMessages();
+        if (messages == null || line == null) {
+            return line == null ? "" : line;
+        }
+        return messages.theme(line);
     }
 
     private PlaceholderResolver resolver() {

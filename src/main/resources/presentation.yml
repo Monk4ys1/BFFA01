@@ -1,0 +1,91 @@
+# Sidebar chrome, sounds, and the first-join welcome.
+# Text lives in lang/en.yml and lang/de.yml. This file only points at those keys.
+enabled: true
+
+tab:
+  enabled: true
+  header:
+    - tab-header-1
+    - tab-header-2
+  footer:
+    - tab-footer-1
+    - tab-footer-2
+
+actionbar:
+  enabled: true
+  idle: actionbar-idle
+
+bossbar:
+  enabled: true
+  title: bossbar-title
+  color: BLUE
+  low-color: RED
+  low-seconds: 30
+
+titles:
+  enabled: true
+
+chat:
+  enabled: true
+
+first-join:
+  enabled: true
+  coins: 25
+  lines:
+    - first-join-1
+    - first-join-2
+    - first-join-3
+
+# Empty a list to silence that cue. The first name the server still has is played.
+sounds:
+  kill:
+    - ENTITY_PLAYER_ATTACK_CRIT
+    - ENTITY_ARROW_HIT_PLAYER
+  death:
+    - ENTITY_PLAYER_HURT
+    - BLOCK_GLASS_BREAK
+  streak:
+    - ENTITY_PLAYER_LEVELUP
+    - UI_TOAST_CHALLENGE_COMPLETE
+  map:
+    - BLOCK_NOTE_BLOCK_PLING
+    - BLOCK_NOTE_BLOCK_BELL
+  join:
+    - BLOCK_AMETHYST_BLOCK_CHIME
+    - ENTITY_EXPERIENCE_ORB_PICKUP
+  click:
+    - UI_BUTTON_CLICK
+    - BLOCK_NOTE_BLOCK_HAT
+  buy:
+    - ENTITY_EXPERIENCE_ORB_PICKUP
+    - ENTITY_PLAYER_LEVELUP
+  fail:
+    - BLOCK_NOTE_BLOCK_BASS
+    - ENTITY_VILLAGER_NO
+
+effect-cycle:
+  - none
+  - totem
+  - flame
+  - heart
+  - crit
+  - enchant
+  - note
+
+# Newer names first, then the 1.20.4 name.
+effects:
+  none: []
+  totem:
+    - TOTEM_OF_UNDYING
+    - TOTEM
+  flame:
+    - FLAME
+  heart:
+    - HEART
+  crit:
+    - CRIT
+  enchant:
+    - ENCHANT
+    - ENCHANTMENT_TABLE
+  note:
+    - NOTE
