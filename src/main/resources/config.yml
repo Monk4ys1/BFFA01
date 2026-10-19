@@ -22,8 +22,69 @@ storage:
     parameters: "useSSL=false&allowPublicKeyRetrieval=true"
 
 # Armor-stand leaderboard above the current spawn. Leave false unless you want it.
+# backend: auto (DecentHolograms, then FancyHolograms, then armor stands), decentholograms, fancyholograms, armorstand
 holograms:
   enabled: false
+  backend: auto
+  id: bffa-top
+
+# Soft dependencies. The plugin loads when none of these are installed.
+# enabled: false turns a hook off even if that plugin is on the server.
+integrations:
+  placeholderapi:
+    enabled: true
+  vault:
+    enabled: true
+    # Shop spends internal coins, or the Vault economy.
+    shop: internal
+    # Kill reward: internal coins, vault, or both.
+    # kill-amount is the coins paid per kill. 0 pays nothing.
+    # A config that does not contain this key also pays nothing.
+    kill-reward: internal
+    kill-amount: 5
+  luckperms:
+    enabled: true
+  worldguard:
+    enabled: true
+    # State flags bffa-build and bffa-pvp, default allow. Registered on load.
+    flags: true
+    # Optional region id. maps.<name>.region overrides this for that arena.
+    arena-region: ""
+    deny-build-outside: false
+    deny-pvp-outside: false
+  decentholograms:
+    enabled: true
+  fancyholograms:
+    enabled: true
+  geyser:
+    enabled: true
+  floodgate:
+    enabled: true
+    # Bedrock players get forms for /shop and /stats. Java players keep the chest GUI.
+    forms: true
+  viaversion:
+    enabled: true
+  miniplaceholders:
+    enabled: true
+  metrics:
+    enabled: true
+    # bStats plugin id. 0 does not send anything. plugins/bStats/config.yml can still opt out.
+    plugin-id: 0
+  discord:
+    enabled: false
+    # Only https://discord.com/api/webhooks/... (discordapp.com, canary, and ptb too).
+    url: ""
+    username: BuildFFA
+    kills: true
+    deaths: false
+    streaks: true
+    milestones: [5, 10, 15, 20, 25, 50]
+    map-switch: false
+    rate-limit: 30
+    kill-message: "%killer% killed %victim% (streak %streak%)"
+    death-message: "%player% died"
+    streak-message: "%player% reached a %streak% killstreak"
+    map-message: "Map changed to %map%"
 
 # The time in seconds between map swaps
 map-swap-interval: 600

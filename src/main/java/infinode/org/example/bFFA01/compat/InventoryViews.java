@@ -1,5 +1,6 @@
 package infinode.org.example.bFFA01.compat;
 
+import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -28,6 +29,23 @@ public final class InventoryViews {
             return (Inventory) method.invoke(view);
         } catch (ReflectiveOperationException ex) {
             throw new IllegalStateException("Could not read the open inventory", ex);
+        }
+    }
+
+    public static Inventory openTop(Player player) {
+        if (player == null) {
+            return null;
+        }
+        try {
+            Object view = player.getOpenInventory();
+            if (view == null) {
+                return null;
+            }
+            Method method = view.getClass().getMethod("getTopInventory");
+            Object inventory = method.invoke(view);
+            return inventory instanceof Inventory top ? top : null;
+        } catch (Throwable ex) {
+            return null;
         }
     }
 

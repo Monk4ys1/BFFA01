@@ -2,6 +2,9 @@ package infinode.org.example.bFFA01.listeners;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.Health;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
+import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
+import infinode.org.example.bFFA01.hooks.worldguard.WorldGuardRegions;
 import infinode.org.example.bFFA01.compat.InventoryViews;
 import infinode.org.example.bFFA01.compat.PotionEffects;
 import infinode.org.example.bFFA01.compat.ProfileBans;
@@ -188,6 +191,9 @@ public class GameListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (player == null) {
+            return;
+        }
         plugin.getDataManager().rememberName(player.getUniqueId(), player.getName());
         event.setJoinMessage(TextLines.render(plugin, "join", "&8[&a+&8] &7%player%",
                 Map.of("player", player.getName())));
@@ -202,12 +208,16 @@ public class GameListener implements Listener {
         if (plugin.presentation() != null) {
             plugin.presentation().onJoin(player);
         }
+        MatchEvents.join(plugin, player);
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        String name = player.getName();
+        if (player == null) {
+            return;
+        }
+        String name = player.getName() == null ? "" : player.getName();
         if (plugin.presentation() != null) {
             plugin.presentation().onQuit(player);
         }
@@ -219,15 +229,21 @@ public class GameListener implements Listener {
 
         if (isPlayerInCombat(player, now, pauseMillis)) {
             UUID damagerId = lastDamager.get(player.getUniqueId());
+            Player killer = null;
+            String victimName = player.getName() == null ? "" : player.getName();
+            Location deathAt = locationOf(player);
             if (damagerId != null) {
-                Player killer = Bukkit.getPlayer(damagerId);
+                killer = Bukkit.getPlayer(damagerId);
                 if (killer != null && killer.isOnline() && !killer.equals(player)) {
-                    onEntity(killer, () -> creditKill(killer, player, true));
+                    Player credited = killer;
+                    Player victim = player;
+                    onEntity(killer, () -> creditKill(credited, victim, victimName, deathAt, true));
                 }
             }
 
             plugin.getDataManager().addDeath(player.getUniqueId());
             plugin.getKillstreakManager().resetStreak(player);
+            MatchEvents.death(plugin, player, killer);
             vampireFangActive.remove(player.getUniqueId());
             lastCombatTime.remove(player.getUniqueId());
             lastDamager.remove(player.getUniqueId());
@@ -242,7 +258,7 @@ public class GameListener implements Listener {
         lastDamager.remove(player.getUniqueId());
         combatFlags.remove(player.getUniqueId());
         event.setQuitMessage(TextLines.render(plugin, "quit", "&8[&c-&8] &7%player%",
-                Map.of("player", player.getName())));
+                Map.of("player", name)));
     }
 
     private void forgetTeams(Player player, String name) {
@@ -337,6 +353,10 @@ public class GameListener implements Listener {
         Player player = event.getPlayer();
         int safezoneY = getMapSetting("safezone-y-level", 90);
         if (player.getLocation().getY() >= safezoneY) {
+            event.setCancelled(true);
+            return;
+        }
+        if (!allowsBuild(player, event.getBlock().getLocation())) {
             event.setCancelled(true);
         }
     }
@@ -433,6 +453,10 @@ public class GameListener implements Listener {
             if (victim.getLocation().getY() >= safezoneY) {
                 return;
             }
+            if (damager != null && !damager.equals(victim) && !allowsPvp(victim.getLocation())) {
+                event.setCancelled(true);
+                return;
+            }
             if (damager != null && !damager.equals(victim)) {
                 long now = System.currentTimeMillis();
                 lastCombatTime.put(victim.getUniqueId(), now);
@@ -485,46 +509,116 @@ public class GameListener implements Listener {
         lastDamager.remove(dead.getUniqueId());
         combatFlags.put(dead.getUniqueId(), false);
 
+        MatchEvents.death(plugin, dead, killer);
         if (killer != null && !killer.equals(dead)) {
+            String victimName = dead.getName() == null ? "" : dead.getName();
+            String killerName = killer.getName() == null ? "" : killer.getName();
+            Location deathAt = locationOf(dead);
             event.setDeathMessage(TextLines.prefixed(plugin, "player-killed",
                     "&c%player% &7was killed by &a%killer%&7.",
-                    Map.of("player", dead.getName(), "killer", killer.getName())));
-            onEntity(killer, () -> creditKill(killer, dead, false));
+                    Map.of("player", victimName, "killer", killerName)));
+            Player victim = dead;
+            onEntity(killer, () -> creditKill(killer, victim, victimName, deathAt, false));
             if (plugin.presentation() != null) {
-                plugin.presentation().onDeath(dead, killer.getName());
+                plugin.presentation().onDeath(dead, killerName);
             }
         } else {
+            String victimName = dead.getName() == null ? "" : dead.getName();
             event.setDeathMessage(TextLines.prefixed(plugin, "player-died",
-                    "&c%player% &7died.", Map.of("player", dead.getName())));
+                    "&c%player% &7died.", Map.of("player", victimName)));
             if (plugin.presentation() != null) {
                 plugin.presentation().onDeath(dead, "");
             }
         }
 
         later(dead, () -> {
-            if (dead.isDead()) {
-                dead.spigot().respawn();
+            try {
+                if (dead.isOnline() && dead.isDead()) {
+                    dead.spigot().respawn();
+                }
+            } catch (Throwable ignored) {
+                // The player already left.
             }
         }, 5L);
     }
 
-    private void creditKill(Player killer, Player dead, boolean announce) {
-        plugin.getDataManager().rememberName(killer.getUniqueId(), killer.getName());
-        plugin.getDataManager().addKill(killer.getUniqueId());
-        plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
-        if (plugin.presentation() != null) {
-            plugin.presentation().onKill(killer, dead);
+    private void creditKill(Player killer, Player dead, String victimName, Location deathAt, boolean announce) {
+        if (killer == null) {
+            return;
         }
-        plugin.getKillstreakManager().addKill(killer);
-        Health.fill(killer);
-        giveKillRewards(killer);
+        String killerName;
+        try {
+            killerName = killer.getName();
+        } catch (Throwable ex) {
+            killerName = "";
+        }
+        if (killerName == null) {
+            killerName = "";
+        }
+        String safeVictim = victimName == null ? "" : victimName;
+        plugin.getDataManager().rememberName(killer.getUniqueId(), killerName);
+        plugin.getDataManager().addKill(killer.getUniqueId());
+        CurrencyRouter.get(plugin).rewardKill(killer);
+        if (plugin.presentation() != null) {
+            plugin.presentation().onKill(killer, safeVictim, deathAt);
+        }
+        if (plugin.getKillstreakManager() != null) {
+            plugin.getKillstreakManager().addKill(killer);
+        }
+        if (online(killer)) {
+            Health.fill(killer);
+            giveKillRewards(killer);
+        }
         if (announce) {
             String message = TextLines.prefixed(plugin, "player-killed",
                     "&c%player% &7was killed by &a%killer%&7.",
-                    Map.of("player", dead.getName(), "killer", killer.getName()));
+                    Map.of("player", safeVictim, "killer", killerName));
             for (Player online : Bukkit.getOnlinePlayers()) {
-                onEntity(online, () -> online.sendMessage(message));
+                if (online == null) {
+                    continue;
+                }
+                onEntity(online, () -> {
+                    if (online.isOnline()) {
+                        online.sendMessage(message);
+                    }
+                });
             }
+        }
+        MatchEvents.kill(plugin, killer, dead, safeVictim);
+    }
+
+    private static boolean online(Player player) {
+        try {
+            return player != null && player.isOnline();
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    private static Location locationOf(Player player) {
+        try {
+            return player.getLocation().clone();
+        } catch (Throwable ex) {
+            return null;
+        }
+    }
+
+    private boolean allowsBuild(Player player, Location location) {
+        return regionRules() == null || regionRules().allowsBuild(plugin, location);
+    }
+
+    private boolean allowsPvp(Location location) {
+        return regionRules() == null || regionRules().allowsPvp(plugin, location);
+    }
+
+    private WorldGuardRegions regionRules() {
+        try {
+            if (plugin.services() == null) {
+                return null;
+            }
+            return plugin.services().get(WorldGuardRegions.class).orElse(null);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -575,7 +669,14 @@ public class GameListener implements Listener {
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
-        later(player, () -> plugin.getMapManager().teleportToCurrentSpawn(player), 1L);
+        if (player == null) {
+            return;
+        }
+        later(player, () -> {
+            if (online(player)) {
+                plugin.getMapManager().teleportToCurrentSpawn(player);
+            }
+        }, 1L);
     }
 
     @EventHandler

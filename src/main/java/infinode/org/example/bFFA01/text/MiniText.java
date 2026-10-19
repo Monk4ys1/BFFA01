@@ -27,6 +27,31 @@ public final class MiniText {
     private MiniText() {
     }
 
+    public static String substitute(String template, Map<String, String> placeholders) {
+        return apply(template, placeholders);
+    }
+
+    public static String plain(String legacy) {
+        if (legacy == null || legacy.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(legacy.length());
+        for (int i = 0; i < legacy.length(); i++) {
+            if (legacy.charAt(i) != '§' || i + 1 >= legacy.length()) {
+                out.append(legacy.charAt(i));
+                continue;
+            }
+            char code = Character.toLowerCase(legacy.charAt(i + 1));
+            if (code == 'x' && i + 13 < legacy.length()) {
+                i += 13;
+                continue;
+            }
+            i++;
+        }
+        String text = out.toString().trim();
+        return text.length() > 64 ? text.substring(0, 64) : text;
+    }
+
     public static String render(String template, Map<String, String> placeholders) {
         if (template == null || template.isEmpty()) {
             return "";

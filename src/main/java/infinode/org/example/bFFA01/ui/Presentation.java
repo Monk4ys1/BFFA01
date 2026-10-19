@@ -48,6 +48,8 @@ public final class Presentation {
     private final Map<UUID, BossBar> bars = new ConcurrentHashMap<>();
     private final Map<UUID, Long> actionTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> tabTimes = new ConcurrentHashMap<>();
+    private final Map<UUID, Stamp> stamps = new ConcurrentHashMap<>();
+    private final Map<UUID, String> barTitles = new ConcurrentHashMap<>();
     private Theme theme = Theme.defaults();
     private MenuCatalog catalog = MenuCatalog.read("");
     private PresentationSettings settings = PresentationSettings.read("");
@@ -58,6 +60,14 @@ public final class Presentation {
         this.plugin = plugin;
         this.menus = new Menus(this);
         this.preferences = new PlayerPreferences(new File(plugin.getDataFolder(), "preferences.yml"));
+        this.preferences.writer(task -> {
+            ServerScheduler tasks = plugin.scheduler();
+            if (tasks == null) {
+                task.run();
+            } else {
+                tasks.runAsync(task);
+            }
+        });
         reload();
         ServerScheduler scheduler = plugin.scheduler();
         if (scheduler != null) {
@@ -108,6 +118,7 @@ public final class Presentation {
         for (String issue : catalog.issues()) {
             plugin.getLogger().warning("Menu layout: " + issue);
         }
+        closeMenus();
     }
 
     public void shutdown() {
@@ -134,7 +145,12 @@ public final class Presentation {
         UUID id = player.getUniqueId();
         actionTimes.remove(id);
         tabTimes.remove(id);
+        stamps.remove(id);
+        barTitles.remove(id);
         votes.remove(id);
+        if (plugin.getScoreboardManager() != null) {
+            plugin.getScoreboardManager().forget(player);
+        }
         BossBar bar = bars.remove(id);
         if (bar != null) {
             bar.removeAll();
@@ -151,7 +167,7 @@ public final class Presentation {
             return;
         }
         actionTimes.put(player.getUniqueId(), now);
-        String text = line(settings.actionBarKey(), placeholders(player));
+        String text = line(player, settings.actionBarKey(), placeholders(player));
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(text));
     }
 
@@ -168,7 +184,7 @@ public final class Presentation {
         }
         tabTimes.put(player.getUniqueId(), now);
         Map<String, String> values = placeholders(player);
-        player.setPlayerListHeaderFooter(join(settings.tabHeader(), values), join(settings.tabFooter(), values));
+        player.setPlayerListHeaderFooter(join(player, settings.tabHeader(), values), join(player, settings.tabFooter(), values));
     }
 
     public void refreshBossbar(Player player) {
@@ -185,14 +201,16 @@ public final class Presentation {
         updateBossbar(player);
     }
 
-    public void onKill(Player killer, Player dead) {
-        if (killer == null || dead == null) {
+    public void onKill(Player killer, String victimName, Location where) {
+        if (killer == null) {
             return;
         }
+        stamps.remove(killer.getUniqueId());
         sound(killer, "kill");
-        burst(dead.getLocation(), preferences.effect(killer.getUniqueId()));
+        burst(where, preferences.effect(killer.getUniqueId()));
         if (settings.titles() && !milestone(streakOf(killer) + 1)) {
-            title(killer, "title-kill", "title-kill-sub", Map.of("player", dead.getName(), "killer", killer.getName()));
+            String name = victimName == null ? "" : victimName;
+            title(killer, "title-kill", "title-kill-sub", Map.of("player", name, "killer", safe(killer.getName())));
         }
     }
 
@@ -249,11 +267,15 @@ public final class Presentation {
     }
 
     public String line(String key, Map<String, String> values) {
+        return line(null, key, values);
+    }
+
+    public String line(Player player, String key, Map<String, String> values) {
         Messages messages = plugin.getMessages();
         if (messages == null) {
             return key == null ? "" : key;
         }
-        return messages.render(key, values == null ? Map.of() : values);
+        return infinode.org.example.bFFA01.text.DisplayedText.legacy(plugin, player, messages.raw(key), values == null ? Map.of() : values);
     }
 
     public String prefixed(String key, Map<String, String> values) {
@@ -261,10 +283,21 @@ public final class Presentation {
     }
 
     public Map<String, String> placeholders(Player player) {
+        if (player == null) {
+            return Map.of();
+        }
+        long now = System.currentTimeMillis();
+        Stamp cached = stamps.get(player.getUniqueId());
+        if (cached != null && now - cached.at < 900L) {
+            return cached.values;
+        }
+        return freshPlaceholders(player);
+    }
+
+    private Map<String, String> freshPlaceholders(Player player) {
         UUID id = player.getUniqueId();
         int kills = stat(id, true);
         int deaths = stat(id, false);
-        int coins = plugin.getDataManager() == null ? 0 : plugin.getDataManager().getCoins(id);
         int streak = streakOf(player);
         double ratio = deaths == 0 ? kills : (double) kills / deaths;
         Map<String, String> values = new HashMap<>();
@@ -272,14 +305,16 @@ public final class Presentation {
         values.put("killer", safe(player.getName()));
         values.put("kills", Integer.toString(kills));
         values.put("deaths", Integer.toString(deaths));
-        values.put("coins", Integer.toString(coins));
+        values.put("coins", spendable(player));
         values.put("streak", Integer.toString(streak));
         values.put("kd", String.format(Locale.US, "%.2f", ratio));
         values.put("map", currentMap());
         values.put("time", ClockText.mmss(secondsLeft()));
         values.put("seconds", Integer.toString(secondsLeft()));
-        values.put("players", Integer.toString(Bukkit.getOnlinePlayers().size()));
-        return values;
+        values.put("players", Integer.toString(onlineCount()));
+        Map<String, String> frozen = Map.copyOf(values);
+        stamps.put(id, new Stamp(System.currentTimeMillis(), frozen));
+        return frozen;
     }
 
     private void welcome(Player player) {
@@ -300,11 +335,12 @@ public final class Presentation {
         if (settings.firstJoinCoins() > 0 && plugin.getDataManager() != null) {
             plugin.getDataManager().addCoins(id, settings.firstJoinCoins());
         }
+        stamps.remove(id);
         sound(player, "join");
         if (settings.titles()) {
             title(player, "title-first-join", "title-first-join-sub", placeholders(player));
         }
-        Map<String, String> values = placeholders(player);
+        Map<String, String> values = new HashMap<>(placeholders(player));
         values.put("amount", Integer.toString(settings.firstJoinCoins()));
         for (String key : settings.firstJoinLines()) {
             player.sendMessage(prefixed(key, values));
@@ -320,17 +356,33 @@ public final class Presentation {
                 bar.removeAll();
             }
             bars.clear();
+            barTitles.clear();
             return;
         }
+        ServerScheduler scheduler = plugin.scheduler();
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (!preferences.bossbar(player.getUniqueId())) {
-                BossBar removed = bars.remove(player.getUniqueId());
-                if (removed != null) {
-                    removed.removeAll();
-                }
+            if (player == null) {
                 continue;
             }
-            updateBossbar(player);
+            Runnable update = () -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                if (!preferences.bossbar(player.getUniqueId())) {
+                    BossBar removed = bars.remove(player.getUniqueId());
+                    barTitles.remove(player.getUniqueId());
+                    if (removed != null) {
+                        removed.removeAll();
+                    }
+                    return;
+                }
+                updateBossbar(player);
+            };
+            if (scheduler == null) {
+                update.run();
+            } else {
+                scheduler.runOnEntity(player, update);
+            }
         }
     }
 
@@ -341,14 +393,22 @@ public final class Presentation {
         }
         int seconds = secondsLeft();
         int interval = intervalSeconds();
-        bar.setTitle(SidebarFit.compress(line(settings.bossBarKey(), placeholders(player)), 128));
+        Map<String, String> values = placeholders(player);
+        String fingerprint = values.getOrDefault("map", "") + "|" + values.getOrDefault("time", "")
+                + "|" + values.getOrDefault("streak", "") + "|" + values.getOrDefault("kills", "");
+        String previous = barTitles.get(player.getUniqueId());
         bar.setProgress(Math.max(0.0F, Math.min(1.0F, seconds / (float) interval)));
         bar.setColor(seconds <= settings.lowSeconds() ? color(settings.bossLowColor(), BarColor.RED) : color(settings.bossColor(), BarColor.BLUE));
+        if (fingerprint.equals(previous)) {
+            return;
+        }
+        barTitles.put(player.getUniqueId(), fingerprint);
+        bar.setTitle(SidebarFit.compress(line(player, settings.bossBarKey(), values), 128));
     }
 
     private void title(Player player, String titleKey, String subtitleKey, Map<String, String> values) {
-        String title = titleKey == null || titleKey.isEmpty() ? "" : line(titleKey, values);
-        String subtitle = subtitleKey == null || subtitleKey.isEmpty() ? "" : line(subtitleKey, values);
+        String title = titleKey == null || titleKey.isEmpty() ? "" : line(player, titleKey, values);
+        String subtitle = subtitleKey == null || subtitleKey.isEmpty() ? "" : line(player, subtitleKey, values);
         player.sendTitle(title, subtitle, 5, 40, 12);
     }
 
@@ -377,15 +437,62 @@ public final class Presentation {
         }
     }
 
-    private String join(List<String> keys, Map<String, String> values) {
+    private String join(Player player, List<String> keys, Map<String, String> values) {
         StringBuilder out = new StringBuilder();
         for (String key : keys) {
             if (out.length() > 0) {
                 out.append('\n');
             }
-            out.append(line(key, values));
+            out.append(line(player, key, values));
         }
         return out.toString();
+    }
+
+    private String spendable(Player player) {
+        try {
+            return infinode.org.example.bFFA01.hooks.vault.CurrencyRouter.get(plugin).balance(player);
+        } catch (Throwable ex) {
+            return "0";
+        }
+    }
+
+    private int onlineCount() {
+        try {
+            return Bukkit.getOnlinePlayers().size();
+        } catch (Throwable ex) {
+            return 0;
+        }
+    }
+
+    private void closeMenus() {
+        try {
+            ServerScheduler scheduler = plugin.scheduler();
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (player == null) {
+                    continue;
+                }
+                Runnable close = () -> {
+                    try {
+                        org.bukkit.inventory.Inventory top = infinode.org.example.bFFA01.compat.InventoryViews.openTop(player);
+                        if (top != null && top.getHolder() instanceof infinode.org.example.bFFA01.ui.menu.MenuHolder) {
+                            player.closeInventory();
+                        }
+                    } catch (Throwable ignored) {
+                        // The inventory is already gone.
+                    }
+                };
+                if (scheduler == null) {
+                    close.run();
+                } else {
+                    scheduler.runOnEntity(player, close);
+                }
+            }
+        } catch (Throwable ignored) {
+            // No players yet.
+        }
+    }
+
+    private record Stamp(long at, Map<String, String> values) {
     }
 
     private int streakOf(Player player) {

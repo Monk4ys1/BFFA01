@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.hooks;
 import infinode.org.example.bFFA01.BFFA01;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -31,8 +32,18 @@ public final class IntegrationBus {
         }
         for (Integration integration : registered.values()) {
             boolean present = pluginEnabled.test(integration.pluginName());
+            boolean want = false;
+            if (present) {
+                try {
+                    want = integration.available(plugin);
+                } catch (Throwable ex) {
+                    if (logger != null) {
+                        logger.warning("Integration " + integration.id() + " was skipped: " + ex.getMessage());
+                    }
+                }
+            }
             boolean was = active.contains(integration.id());
-            if (present && !was) {
+            if (want && !was) {
                 try {
                     integration.enable(plugin);
                     active.add(integration.id());
@@ -44,7 +55,7 @@ public final class IntegrationBus {
                         logger.warning("Integration " + integration.id() + " failed: " + ex.getMessage());
                     }
                 }
-            } else if (!present && was) {
+            } else if (!want && was) {
                 try {
                     integration.disable();
                 } catch (Throwable ex) {
@@ -59,6 +70,25 @@ public final class IntegrationBus {
 
     public boolean isActive(String id) {
         return active.contains(id);
+    }
+
+    public Set<String> activeIds() {
+        return Set.copyOf(new LinkedHashSet<>(active));
+    }
+
+    public void reload(BFFA01 plugin) {
+        for (Integration integration : registered.values()) {
+            if (!active.contains(integration.id())) {
+                continue;
+            }
+            try {
+                integration.reload(plugin);
+            } catch (Throwable ex) {
+                if (plugin != null) {
+                    plugin.getLogger().warning("Integration " + integration.id() + " did not reload: " + ex.getMessage());
+                }
+            }
+        }
     }
 
     public <T extends Integration> Optional<T> find(Class<T> type) {

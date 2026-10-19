@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.config;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -18,6 +19,14 @@ public final class StorageSettings {
 
     private static final Pattern HOST = Pattern.compile("[A-Za-z0-9._-]{1,253}");
     private static final Pattern DATABASE = Pattern.compile("[A-Za-z0-9_]{1,64}");
+    private static final Pattern PARAMETER = Pattern.compile("[A-Za-z0-9_]{1,40}=[A-Za-z0-9_.,:-]{0,80}");
+    private static final Set<String> BLOCKED_PARAMETERS = Set.of(
+            "allowloadlocalinfile",
+            "allowurlinlocalinfile",
+            "autodeserialize",
+            "queryinterceptors",
+            "statementinterceptors"
+    );
 
     private final Type type;
     private final String sqliteFile;
@@ -126,6 +135,20 @@ public final class StorageSettings {
         if (value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0 || value.indexOf(' ') >= 0) {
             return "";
         }
-        return value;
+        StringBuilder kept = new StringBuilder();
+        for (String part : value.split("&")) {
+            if (!PARAMETER.matcher(part).matches()) {
+                continue;
+            }
+            String key = part.substring(0, part.indexOf('=')).toLowerCase(Locale.ROOT);
+            if (BLOCKED_PARAMETERS.contains(key)) {
+                continue;
+            }
+            if (kept.length() > 0) {
+                kept.append('&');
+            }
+            kept.append(part);
+        }
+        return kept.toString();
     }
 }

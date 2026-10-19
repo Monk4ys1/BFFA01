@@ -59,4 +59,14 @@ class JdbcPlayerRepositoryTest {
         config.set("storage.mysql.database", "bffa");
         assertEquals(StorageSettings.Type.YAML, StorageSettings.resolve(config).type());
     }
+
+    @Test
+    void mysqlParametersDropLocalFileLoading() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "mysql");
+        config.set("storage.mysql.host", "127.0.0.1");
+        config.set("storage.mysql.database", "bffa");
+        config.set("storage.mysql.parameters", "useSSL=false&allowLoadLocalInfile=true&statementInterceptors=evil");
+        assertEquals("useSSL=false", StorageSettings.resolve(config).mysqlParameters());
+    }
 }

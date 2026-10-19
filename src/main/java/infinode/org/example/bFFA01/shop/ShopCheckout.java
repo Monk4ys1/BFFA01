@@ -1,6 +1,8 @@
 package infinode.org.example.bFFA01.shop;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
+import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
@@ -29,26 +31,29 @@ public final class ShopCheckout {
         if (player == null || offer == null) {
             return Result.MISSING;
         }
+        if (plugin.getDataManager() == null) {
+            return Result.MISSING;
+        }
         if (offer.permanent() && plugin.getDataManager().hasUpgrade(player.getUniqueId(), offer.id())) {
             player.sendMessage(TextLines.render(plugin, "shop-already-owned", "&cYou already own this upgrade!", Map.of()));
             return Result.OWNED;
         }
-        if (plugin.getDataManager().getCoins(player.getUniqueId()) < offer.cost()) {
-            player.sendMessage(TextLines.render(plugin, "shop-poor", "&cNot enough coins!", Map.of()));
-            return Result.POOR;
-        }
-        if (!plugin.getDataManager().removeCoins(player.getUniqueId(), offer.cost())) {
+        CurrencyRouter currency = CurrencyRouter.get(plugin);
+        if (!currency.canAfford(player, offer.cost()) || !currency.charge(player, offer.cost())) {
             player.sendMessage(TextLines.render(plugin, "shop-poor", "&cNot enough coins!", Map.of()));
             return Result.POOR;
         }
         if (offer.permanent()) {
             plugin.getDataManager().addUpgrade(player.getUniqueId(), offer.id());
-            plugin.getKitManager().giveKit(player);
-        } else {
+            if (plugin.getKitManager() != null) {
+                plugin.getKitManager().giveKit(player);
+            }
+        } else if (player.isOnline()) {
             player.getInventory().addItem(offer.icon(plugin, ShopOffer.key(plugin), false));
         }
         player.sendMessage(TextLines.render(plugin, "shop-purchased", "&aPurchased %item%!",
                 Map.of("item", offer.legacyName())));
+        MatchEvents.purchase(plugin, player, offer.id(), offer.cost(), offer.permanent());
         return Result.BOUGHT;
     }
 

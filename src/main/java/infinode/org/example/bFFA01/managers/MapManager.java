@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.Health;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
 import infinode.org.example.bFFA01.text.TextLines;
 import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
@@ -50,15 +51,14 @@ public class MapManager {
     }
 
     public void startMapRotation() {
-        if (mapNames().isEmpty()) {
+        if (mapNames().isEmpty() || rotating) {
             return;
         }
 
         swapMap(null);
 
-        int swapInterval = plugin.getConfig().getInt("map-swap-interval", 300) * 20;
         synchronized (timerLock) {
-            ticksLeft = swapInterval;
+            ticksLeft = intervalTicks();
         }
         rotating = true;
 
@@ -66,10 +66,36 @@ public class MapManager {
         if (scheduler == null) {
             return;
         }
-        scheduler.runTimer(() -> tick(swapInterval), 20L, 20L);
+        scheduler.runTimer(this::tick, 20L, 20L);
     }
 
-    private void tick(int swapInterval) {
+    public void onConfigReload() {
+        loadMaps();
+        int interval = intervalTicks();
+        synchronized (timerLock) {
+            if (ticksLeft > interval) {
+                ticksLeft = interval;
+            }
+        }
+        if (!rotating && !mapNames().isEmpty()) {
+            startMapRotation();
+        }
+    }
+
+    private int intervalTicks() {
+        int seconds = 300;
+        try {
+            seconds = plugin.getConfig().getInt("map-swap-interval", 300);
+        } catch (Throwable ignored) {
+            seconds = 300;
+        }
+        if (seconds < 10) {
+            seconds = 10;
+        }
+        return seconds * 20;
+    }
+
+    private void tick() {
         int left;
         synchronized (timerLock) {
             ticksLeft -= 20;
@@ -109,7 +135,7 @@ public class MapManager {
         if (left <= 0) {
             swapMap(null);
             synchronized (timerLock) {
-                ticksLeft = swapInterval;
+                ticksLeft = intervalTicks();
             }
             isSwapping = false;
         }
@@ -132,6 +158,7 @@ public class MapManager {
             return;
         }
 
+        String previous = currentMap;
         String next = null;
         synchronized (timerLock) {
             if (specificMap != null && mapNames().contains(specificMap)) {
@@ -157,6 +184,7 @@ public class MapManager {
         }
         currentMap = next;
         loadSpawn(currentMap);
+        MatchEvents.map(plugin, previous, currentMap);
 
         String finalMessage = TextLines.prefixed(plugin, "map-swapped",
                 "&7The map has been changed to &e%map%&7!",
@@ -229,8 +257,20 @@ public class MapManager {
         player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
     }
 
+    public void refreshLeaderboard() {
+        refreshHologram();
+    }
+
+    public Location spawn() {
+        return currentSpawn == null ? null : currentSpawn.clone();
+    }
+
     private void refreshHologram() {
-        if (!plugin.getConfig().getBoolean("holograms.enabled", false) || plugin.getHologramManager() == null || currentSpawn == null) {
+        if (plugin.getHologramManager() == null) {
+            return;
+        }
+        if (!plugin.getConfig().getBoolean("holograms.enabled", false) || currentSpawn == null) {
+            plugin.getHologramManager().clear();
             return;
         }
         Location spawn = currentSpawn.clone();

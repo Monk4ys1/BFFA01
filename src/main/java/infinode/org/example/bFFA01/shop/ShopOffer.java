@@ -84,6 +84,14 @@ public enum ShopOffer {
         return legacyName;
     }
 
+    public String actionKey() {
+        return actionKey;
+    }
+
+    public String hintKey() {
+        return hintKey;
+    }
+
     public static NamespacedKey key(Plugin plugin) {
         return new NamespacedKey(plugin, "shop_item");
     }

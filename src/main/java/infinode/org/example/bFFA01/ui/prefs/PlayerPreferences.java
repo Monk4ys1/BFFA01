@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * Display choices live outside the stats database so cosmetics do not need a schema change.
@@ -19,10 +20,17 @@ public final class PlayerPreferences {
 
     private final File file;
     private final Map<UUID, Pref> prefs = new ConcurrentHashMap<>();
+    private final Object io = new Object();
     private volatile boolean writable = true;
+    private volatile Executor writer = Runnable::run;
+    private long generation;
 
     public PlayerPreferences(File file) {
         this.file = file;
+    }
+
+    public void writer(Executor executor) {
+        writer = executor == null ? Runnable::run : executor;
     }
 
     public void load() {
@@ -118,6 +126,16 @@ public final class PlayerPreferences {
         if (!writable || file == null) {
             return;
         }
+        String text;
+        long ticket;
+        synchronized (io) {
+            ticket = ++generation;
+            text = serialize();
+        }
+        writer.execute(() -> write(ticket, text));
+    }
+
+    private String serialize() {
         YamlConfiguration yaml = new YamlConfiguration();
         for (Map.Entry<UUID, Pref> entry : prefs.entrySet()) {
             String path = "players." + entry.getKey();
@@ -128,12 +146,21 @@ public final class PlayerPreferences {
             yaml.set(path + ".effect", pref.effect);
             yaml.set(path + ".welcomed", pref.welcomed);
         }
+        return yaml.saveToString();
+    }
+
+    private void write(long ticket, String text) {
+        synchronized (io) {
+            if (ticket != generation || !writable || file == null) {
+                return;
+            }
+        }
         try {
             File parent = file.getParentFile();
             if (parent != null) {
                 parent.mkdirs();
             }
-            yaml.save(file);
+            Files.writeString(file.toPath(), text, StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             writable = false;
         }
