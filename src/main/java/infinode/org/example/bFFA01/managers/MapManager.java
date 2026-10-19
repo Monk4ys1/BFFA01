@@ -85,6 +85,19 @@ public class MapManager {
                 tell(player, message);
             }
 
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                int soon = secondsLeft;
+                ServerScheduler scheduler = plugin.scheduler();
+                if (plugin.presentation() == null) {
+                    break;
+                }
+                if (scheduler == null) {
+                    plugin.presentation().onMapSoon(player, soon);
+                } else {
+                    scheduler.runOnEntity(player, () -> plugin.presentation().onMapSoon(player, soon));
+                }
+            }
+
             if (secondsLeft <= 3 && !isSwapping) {
                 isSwapping = true;
                 if (plugin.getGameListener() != null) {
@@ -133,7 +146,14 @@ public class MapManager {
             if (options.size() > 1 && currentMap != null) {
                 options.remove(currentMap);
             }
-            next = options.get(new Random().nextInt(options.size()));
+            String voted = null;
+            if (plugin.presentation() != null) {
+                voted = plugin.presentation().votes().winner(options, System.nanoTime());
+            }
+            next = voted != null ? voted : options.get(new Random().nextInt(options.size()));
+        }
+        if (plugin.presentation() != null) {
+            plugin.presentation().votes().clear();
         }
         currentMap = next;
         loadSpawn(currentMap);
@@ -147,10 +167,16 @@ public class MapManager {
             if (scheduler == null) {
                 player.sendMessage(finalMessage);
                 teleportHere(player);
+                if (plugin.presentation() != null) {
+                    plugin.presentation().onMapArrived(player);
+                }
             } else {
                 scheduler.runOnEntity(player, () -> {
                     player.sendMessage(finalMessage);
                     teleportHere(player);
+                    if (plugin.presentation() != null) {
+                        plugin.presentation().onMapArrived(player);
+                    }
                 });
             }
         }
@@ -248,6 +274,12 @@ public class MapManager {
         plugin.saveConfig();
         loadMaps();
         return true;
+    }
+
+    public int secondsRemaining() {
+        synchronized (timerLock) {
+            return Math.max(0, ticksLeft / 20);
+        }
     }
 
     public String getCurrentMap() {

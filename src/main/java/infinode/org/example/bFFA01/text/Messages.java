@@ -21,9 +21,20 @@ import java.util.Map;
 public final class Messages {
 
     private final Map<String, String> values;
+    private volatile Map<String, String> colors = ThemeText.defaultColors();
+    private volatile Map<String, String> icons = ThemeText.defaultIcons();
 
     private Messages(Map<String, String> values) {
         this.values = values;
+    }
+
+    public void style(Map<String, String> colors, Map<String, String> icons) {
+        this.colors = colors == null || colors.isEmpty() ? ThemeText.defaultColors() : Map.copyOf(colors);
+        this.icons = icons == null || icons.isEmpty() ? ThemeText.defaultIcons() : Map.copyOf(icons);
+    }
+
+    public String theme(String template) {
+        return ThemeText.apply(template, colors, icons);
     }
 
     public static Messages load(Path dataFolder, String language, FileConfiguration config) {
@@ -50,7 +61,7 @@ public final class Messages {
     }
 
     public String render(String key, Map<String, String> placeholders) {
-        return MiniText.render(raw(key), placeholders);
+        return MiniText.render(theme(raw(key)), placeholders);
     }
 
     public boolean has(String key) {

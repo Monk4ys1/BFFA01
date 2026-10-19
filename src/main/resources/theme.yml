@@ -1,0 +1,24 @@
+# Visual identity. Language files use %color_primary% and %icon_map%.
+# Colors are #rrggbb. Icons are one to four characters and cannot contain < > & % or §.
+palette:
+  primary: "#7ad7ff"
+  secondary: "#6e8bff"
+  accent: "#f6c453"
+  success: "#7dffb3"
+  danger: "#ff6b7a"
+  muted: "#9aa4b2"
+  soft: "#c9b6ff"
+  warm: "#ff8b6a"
+icons:
+  map: "◇"
+  kills: "⚔"
+  deaths: "☠"
+  coins: "✦"
+  streak: "★"
+  time: "◷"
+  players: "☺"
+  shop: "◆"
+  kit: "▣"
+  stats: "♛"
+  settings: "⚙"
+  vote: "▲"

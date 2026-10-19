@@ -5,11 +5,13 @@ A BuildFFA minigame for Minecraft Java Edition. One jar runs on Spigot, Paper, P
 ## Features
 
 - **Map Management:** Configure arenas in `config.yml` and rotate them on a timer.
-- **Kit layout:** Players arrange their hotbar and save it with `/savekit`.
-- **Shop:** Permanent upgrades and one-time items, opened with `/shop`.
-- **Killstreaks & Stats:** Track kills and deaths, calculate K/D ratios, and reward killstreaks.
-- **Scoreboard:** Sidebar stats from `scoreboard.yml`, with PlaceholderAPI tokens when that plugin is installed.
-- **Messages:** MiniMessage in `lang/en.yml` and `lang/de.yml`. Set `language` in `config.yml`.
+- **Menus:** `/menu` opens a chest GUI for the shop, kit editor, map vote, stats, and settings. The same inventories work through Geyser.
+- **Kit layout:** Arrange the hotbar in `/kit`, or sort it in your inventory and run `/savekit`.
+- **Shop:** Categories for permanent upgrades and one-time items, opened with `/shop`.
+- **Killstreaks & Stats:** Track kills and deaths, calculate K/D ratios, and reward killstreaks. `/stats` opens the record and the leaderboard.
+- **Look:** Palette and icons live in `theme.yml`. Scoreboard, tab header, boss bar, action bar, titles, kill effects, and chat use them.
+- **Scoreboard:** Sidebar stats from `scoreboard.yml`, with PlaceholderAPI tokens when that plugin is installed. Long gradients stay intact on Paper and are resampled to the 64-character team limit on Spigot.
+- **Messages:** MiniMessage in `lang/en.yml` and `lang/de.yml`. Set `language` in `config.yml`. `%color_primary%` and `%icon_map%` follow `theme.yml`.
 - **Storage:** YAML by default. SQLite is bundled. MySQL or MariaDB uses a driver jar you place in `plugins/BFFA01/drivers/`.
 
 ## Commands & Permissions
@@ -17,10 +19,13 @@ A BuildFFA minigame for Minecraft Java Edition. One jar runs on Spigot, Paper, P
 | Command | Description | Permission |
 | :--- | :--- | :--- |
 | `/bffa` | Admin command: `setmap`, `swapmap`, `addcoins`, `removecoins`, `resetstats`, `reload`. | `bffa.admin` (or the matching child node) |
-| `/kit` | Remind the player to arrange their hotbar. | `bffa.kit` |
+| `/menu` | Open the hub for shop, kit, maps, stats, and settings. | `bffa.menu` |
+| `/kit` | Open the kit editor. | `bffa.kit` |
 | `/savekit` | Save the current hotbar layout. | `bffa.savekit` |
-| `/stats` | View personal kills, deaths, K/D, and coins. | `bffa.stats` |
+| `/stats` | Open personal stats and the leaderboard. | `bffa.stats` |
 | `/shop` | Open the coin shop. | `bffa.shop` |
+| `/maps` | Vote for the next map. | `bffa.maps` |
+| `/settings` | Toggle the sidebar, boss bar, action bar, and kill effect. | `bffa.settings` |
 
 `bffa.admin` defaults to operators and grants `bffa.admin.setmap`, `bffa.admin.swapmap`, `bffa.admin.coins`, `bffa.admin.stats`, and `bffa.admin.reload`. The player commands default to everyone.
 
@@ -51,7 +56,7 @@ Plugin jars are not stored in this repository. Install a build you produced your
 
    That check detects a corrupted download. A checksum published in the same GitHub Release does not prove who built the jar, because anyone who can replace the jar can replace the checksum. Prefer a signed release or published build provenance when one is available.
 3. Place the verified jar in the server's `plugins/` directory.
-4. Restart the server. `config.yml`, `scoreboard.yml`, and `lang/en.yml` plus `lang/de.yml` are created in `plugins/BFFA01/`.
+4. Restart the server. `config.yml`, `scoreboard.yml`, `theme.yml`, `menus.yml`, `presentation.yml`, and `lang/en.yml` plus `lang/de.yml` are created in `plugins/BFFA01/`.
 5. Set map spawns with `/bffa setmap <name>` or by editing the `maps` section of `config.yml`.
 
 An existing `config.yml` without `config-version` is copied to `config.yml.v1.bak` and then rewritten. Comments in that file are dropped by the rewrite. Maps, the kit, and a `messages:` section are kept. Strings under `messages:` still override the language file.
@@ -59,8 +64,11 @@ An existing `config.yml` without `config-version` is copied to `config.yml.v1.ba
 ## Configuration Files
 
 - `config.yml` — settings, kit, map spawns, `language`, and `storage`.
+- `theme.yml` — palette and icons. Language lines can use `%color_primary%` and `%icon_map%`.
+- `menus.yml` — chest menu slots, materials, and actions.
+- `presentation.yml` — tab list, boss bar, action bar, titles, sounds, kill effects, and the first-join welcome.
 - `lang/en.yml`, `lang/de.yml` — MiniMessage (or `&` color codes). Placeholders look like `%player%`.
-- `scoreboard.yml` — sidebar layout. Keep lines short. Team prefixes are capped at 64 characters, so named colors are safer than long gradients.
+- `scoreboard.yml` — sidebar layout. Gradients are sent in full on Paper. On Spigot they are resampled so each line stays within the 64-character prefix and suffix.
 - `data.yml` — default stats file. Left untouched when it cannot be parsed.
 - `plugins/BFFA01/drivers/` — optional MySQL (`com.mysql.cj.jdbc.Driver`) or MariaDB (`org.mariadb.jdbc.Driver`) jar. SQLite does not need one.
 

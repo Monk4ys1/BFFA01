@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01;
 import infinode.org.example.bFFA01.commands.BrigadierHook;
 import infinode.org.example.bFFA01.commands.BuildFFAAdminCommand;
 import infinode.org.example.bFFA01.commands.KitEditorCommand;
+import infinode.org.example.bFFA01.commands.MenuCommand;
 import infinode.org.example.bFFA01.commands.SaveKitCommand;
 import infinode.org.example.bFFA01.commands.ShopCommand;
 import infinode.org.example.bFFA01.commands.StatsCommand;
@@ -17,6 +18,9 @@ import infinode.org.example.bFFA01.hooks.WebhookPublisher;
 import infinode.org.example.bFFA01.listeners.GameListener;
 import infinode.org.example.bFFA01.listeners.IntegrationListener;
 import infinode.org.example.bFFA01.listeners.ShopListener;
+import infinode.org.example.bFFA01.ui.Presentation;
+import infinode.org.example.bFFA01.ui.chat.ChatListener;
+import infinode.org.example.bFFA01.ui.menu.MenuListener;
 import infinode.org.example.bFFA01.managers.DataManager;
 import infinode.org.example.bFFA01.managers.HologramManager;
 import infinode.org.example.bFFA01.managers.KillstreakManager;
@@ -47,6 +51,7 @@ public final class BFFA01 extends JavaPlugin {
     private ScoreboardManager scoreboardManager;
     private HologramManager hologramManager;
     private GameListener gameListener;
+    private Presentation presentation;
 
     @Override
     public void onLoad() {
@@ -89,16 +94,23 @@ public final class BFFA01 extends JavaPlugin {
         mapManager = new MapManager(this);
         scoreboardManager = new ScoreboardManager(this);
         hologramManager = new HologramManager(this);
+        presentation = new Presentation(this);
 
         getServer().getPluginManager().registerEvents(gameListener, this);
         getServer().getPluginManager().registerEvents(new ShopListener(this), this);
         getServer().getPluginManager().registerEvents(new IntegrationListener(this), this);
+        getServer().getPluginManager().registerEvents(new MenuListener(this), this);
+        getServer().getPluginManager().registerEvents(new ChatListener(this), this);
 
         bind("bffa", new BuildFFAAdminCommand(this));
         bind("stats", new StatsCommand(this));
         bind("kit", new KitEditorCommand(this));
         bind("savekit", new SaveKitCommand(this));
         bind("shop", new ShopCommand(this));
+        MenuCommand menus = new MenuCommand(this);
+        bind("menu", menus);
+        bind("maps", menus);
+        bind("settings", menus);
 
         mapManager.startMapRotation();
         integrations.refresh(name -> getServer().getPluginManager().isPluginEnabled(name), getLogger(), this);
@@ -120,6 +132,9 @@ public final class BFFA01 extends JavaPlugin {
             if (integrations != null) {
                 integrations.refresh(name -> false, getLogger(), this);
             }
+            if (presentation != null) {
+                presentation.shutdown();
+            }
             if (dataManager != null) {
                 dataManager.flush();
             }
@@ -129,6 +144,9 @@ public final class BFFA01 extends JavaPlugin {
     public void reloadPluginConfig() {
         reloadConfig();
         messages = Messages.load(getDataFolder().toPath(), getConfig().getString("language", "en"), getConfig());
+        if (presentation != null) {
+            presentation.reload();
+        }
         if (scoreboardManager != null) {
             scoreboardManager.reloadConfig();
         }
@@ -175,4 +193,5 @@ public final class BFFA01 extends JavaPlugin {
     public ServerScheduler scheduler() { return scheduler; }
     public IntegrationBus integrations() { return integrations; }
     public ServerRuntime runtime() { return runtime; }
+    public Presentation presentation() { return presentation; }
 }

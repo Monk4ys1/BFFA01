@@ -41,6 +41,9 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
     }
 
     public void openShop(Player player) {
+        if (plugin.presentation() != null && plugin.presentation().menus().open(player, "shop")) {
+            return;
+        }
         Inventory inv = new ShopInventoryHolder().getInventory();
         int coins = plugin.getDataManager().getCoins(player.getUniqueId());
 

@@ -30,7 +30,9 @@ public class KitEditorCommand implements CommandExecutor, TabCompleter {
     }
 
     public void openEditor(Player player) {
-        // The player just sorts their hotbar.
+        if (plugin.presentation() != null && plugin.presentation().menus().open(player, "kit")) {
+            return;
+        }
         player.sendMessage(TextLines.render(plugin, "kit-editor",
                 "&bSort your hotbar the way you like and type &e/savekit &bto save it permanently.", Map.of()));
     }

@@ -25,6 +25,9 @@ public class StatsCommand implements CommandExecutor, TabCompleter {
         if (!(sender instanceof Player)) return true;
 
         Player player = (Player) sender;
+        if (plugin.presentation() != null && plugin.presentation().menus().open(player, "stats")) {
+            return true;
+        }
         int kills = plugin.getDataManager().getKills(player.getUniqueId());
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         double kd = deaths == 0 ? kills : (double) kills / deaths;
