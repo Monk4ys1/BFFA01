@@ -8,7 +8,8 @@ A BuildFFA minigame for Minecraft Java Edition. One jar runs on Spigot, Paper, P
 - **Kit layout:** Players arrange their hotbar and save it with `/savekit`.
 - **Shop:** Permanent upgrades and one-time items, opened with `/shop`.
 - **Killstreaks & Stats:** Track kills and deaths, calculate K/D ratios, and reward killstreaks.
-- **Scoreboard:** Sidebar stats from `scoreboard.yml`, with PlaceholderAPI tokens when that plugin is installed.
+- **Scoreboard:** Sidebar stats from `scoreboard.yml`, with `%bffa_*%` tokens when PlaceholderAPI is installed.
+- **Integrations:** PlaceholderAPI, MiniPlaceholders, Vault, LuckPerms, WorldGuard, DecentHolograms, FancyHolograms, Geyser, Floodgate, ViaVersion, bStats, and Discord webhooks. Each one is optional. The jar still loads when none of them are installed.
 - **Messages:** MiniMessage in `lang/en.yml` and `lang/de.yml`. Set `language` in `config.yml`.
 - **Storage:** YAML by default. SQLite is bundled. MySQL or MariaDB uses a driver jar you place in `plugins/BFFA01/drivers/`.
 
@@ -64,9 +65,45 @@ An existing `config.yml` without `config-version` is copied to `config.yml.v1.ba
 - `data.yml` — default stats file. Left untouched when it cannot be parsed.
 - `plugins/BFFA01/drivers/` — optional MySQL (`com.mysql.cj.jdbc.Driver`) or MariaDB (`org.mariadb.jdbc.Driver`) jar. SQLite does not need one.
 
-`/bffa reload` reloads config, language, the scoreboard file, and the map list. It does not reconnect storage. Change `storage` and restart.
+`/bffa reload` reloads config, language, the scoreboard file, the map list, and storage. It flushes the current store, then opens whatever `storage` now says. If that open fails, the store that was already running stays in use. Switching `storage.type` does not copy rows into the new store. The previous file or database is left as it was after the flush.
 
-Holograms are off until `holograms.enabled` is true. They are armor stands at the current spawn, not a hologram-plugin backend.
+Holograms stay off until `holograms.enabled` is true. `holograms.backend` chooses `auto`, `decentholograms`, `fancyholograms`, or `armorstand`. `auto` uses DecentHolograms, then FancyHolograms, then armor stands at the current spawn.
+
+## Integrations
+
+Every hook has `integrations.<name>.enabled`. `false` turns that hook off even when the plugin is installed. Missing keys use the defaults in `config.yml`. An older `config.yml` does not need those keys: kill rewards stay at 0 coins until `integrations.vault.kill-amount` is set.
+
+| Hook | What it does | Config |
+| :--- | :--- | :--- |
+| PlaceholderAPI | `%bffa_*%` expansion, identifier `bffa` | `integrations.placeholderapi.enabled` |
+| MiniPlaceholders | `<bffa_kills>` and the other tags below | `integrations.miniplaceholders.enabled` |
+| Vault | Shop currency and kill rewards | `integrations.vault.shop` is `internal` or `vault`. `kill-reward` is `internal`, `vault`, or `both`. `kill-amount` is the payout. The shipped file uses `5`. |
+| LuckPerms | Contexts `bffa-map`, `bffa-streak` (`0`, `1-4`, `5-9`, `10+`), `bffa-bedrock`. Prefixs prefer LuckPerms, then Vault chat. | `integrations.luckperms.enabled` |
+| WorldGuard | State flags `bffa-build` and `bffa-pvp`, default allow. Registered in `onLoad`. Optional arena region. | `integrations.worldguard.flags`, `arena-region`, `deny-build-outside`, `deny-pvp-outside`. A map can set `maps.<name>.region`. |
+| DecentHolograms / FancyHolograms | Leaderboard hologram. Armor stands remain the fallback. | `holograms.enabled`, `holograms.backend`, `holograms.id` |
+| Geyser / Floodgate | Bedrock detection. Floodgate players get Cumulus forms for `/shop` and `/stats`. Java players keep the chest GUI. | `integrations.floodgate.forms` |
+| ViaVersion | `%bffa_protocol%` and `%bffa_client%` | `integrations.viaversion.enabled` |
+| bStats | Custom charts for server software, storage, language, and active integrations. Nothing is sent while `plugin-id` is `0`. `plugins/bStats/config.yml` can still opt out. | `integrations.metrics.enabled`, `integrations.metrics.plugin-id` |
+| Discord | Webhook embeds for kills, deaths, streak milestones, and map changes. Only `https` URLs on `discord.com`, `discordapp.com`, `canary.discord.com`, or `ptb.discord.com` whose path starts with `/api/webhooks/`. | `integrations.discord.*` |
+
+PlaceholderAPI parameters (the `%` signs are added by PlaceholderAPI around `bffa_<param>`):
+
+`kills`, `deaths`, `kd`, `coins`, `streak`, `rank`, `map`, `kit`, `prefix`, `bedrock`, `protocol`, `client`, `vault`, `online`, `kills_<name>`, `deaths_<name>`, `kd_<name>`, `coins_<name>`, `streak_<name>`, `rank_<name>`, `top_name_<n>`, `top_kills_<n>`, `top_kd_<n>`.
+
+MiniPlaceholders uses the same names: `<bffa_kills>`, `<bffa_map>`, `<bffa_top_name:1>`.
+
+## Developer API
+
+Other plugins can take `infinode.org.example.bFFA01.api.BuildFFA` from `BuildFFAProvider.get()` or from Bukkit's services manager. The interface exposes the current map and spawn, kills, deaths, coins, K/D, streak, leaderboard position, kit name, Bedrock detection, ViaVersion protocol, prefix, and the active integration ids.
+
+These events are not cancellable. Stats are already updated when they fire:
+
+- `BuildFFAKillEvent`
+- `BuildFFADeathEvent`
+- `BuildFFAStreakEvent` (including a ruined streak)
+- `BuildFFAMapChangeEvent`
+- `BuildFFAPurchaseEvent`
+- `BuildFFAReloadEvent` (`isStorageReconnected()` says whether the store swap succeeded)
 
 ## Building from Source
 

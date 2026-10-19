@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -92,6 +93,41 @@ class DataManagerTest {
 
         assertTrue(data.isWritable());
         assertTrue(Files.isRegularFile(dataFolder.resolve("data.yml")));
+        data.flush();
+    }
+
+    @Test
+    void reloadKeepsYamlStats() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        BFFA01 plugin = plugin(dataFolder);
+        DataManager data = new DataManager(plugin);
+        UUID player = UUID.randomUUID();
+        data.addKill(player);
+
+        assertTrue(data.reconnect());
+        assertEquals("yaml", data.storageLabel());
+        assertEquals(1, data.getKills(player));
+    }
+
+    @Test
+    void reloadReopensSqlite() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", "players.db");
+        BFFA01 plugin = plugin(dataFolder);
+        when(plugin.getConfig()).thenReturn(config);
+
+        DataManager data = new DataManager(plugin);
+        UUID player = UUID.randomUUID();
+        data.addKill(player);
+        data.addKill(player);
+
+        assertTrue(data.reconnect());
+        assertEquals("sqlite", data.storageLabel());
+        assertEquals(2, data.getKills(player));
         data.flush();
     }
 

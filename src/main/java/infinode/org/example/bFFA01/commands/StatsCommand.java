@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.hooks.Integrations;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -25,6 +26,9 @@ public class StatsCommand implements CommandExecutor, TabCompleter {
         if (!(sender instanceof Player)) return true;
 
         Player player = (Player) sender;
+        if (Integrations.openBedrockStats(plugin, player)) {
+            return true;
+        }
         int kills = plugin.getDataManager().getKills(player.getUniqueId());
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         double kd = deaths == 0 ? kills : (double) kills / deaths;

@@ -2,6 +2,9 @@ package infinode.org.example.bFFA01.listeners;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.Health;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
+import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
+import infinode.org.example.bFFA01.hooks.worldguard.WorldGuardRegions;
 import infinode.org.example.bFFA01.compat.InventoryViews;
 import infinode.org.example.bFFA01.compat.PotionEffects;
 import infinode.org.example.bFFA01.compat.ProfileBans;
@@ -193,6 +196,7 @@ public class GameListener implements Listener {
 
         plugin.getMapManager().teleportToCurrentSpawn(player);
         plugin.getScoreboardManager().setScoreboard(player);
+        MatchEvents.join(plugin, player);
     }
 
     @EventHandler
@@ -207,15 +211,18 @@ public class GameListener implements Listener {
 
         if (isPlayerInCombat(player, now, pauseMillis)) {
             UUID damagerId = lastDamager.get(player.getUniqueId());
+            Player killer = null;
             if (damagerId != null) {
-                Player killer = Bukkit.getPlayer(damagerId);
+                killer = Bukkit.getPlayer(damagerId);
                 if (killer != null && killer.isOnline() && !killer.equals(player)) {
-                    onEntity(killer, () -> creditKill(killer, player, true));
+                    Player credited = killer;
+                    onEntity(killer, () -> creditKill(credited, player, true));
                 }
             }
 
             plugin.getDataManager().addDeath(player.getUniqueId());
             plugin.getKillstreakManager().resetStreak(player);
+            MatchEvents.death(plugin, player, killer);
             vampireFangActive.remove(player.getUniqueId());
             lastCombatTime.remove(player.getUniqueId());
             lastDamager.remove(player.getUniqueId());
@@ -326,6 +333,10 @@ public class GameListener implements Listener {
         int safezoneY = getMapSetting("safezone-y-level", 90);
         if (player.getLocation().getY() >= safezoneY) {
             event.setCancelled(true);
+            return;
+        }
+        if (!allowsBuild(player, event.getBlock().getLocation())) {
+            event.setCancelled(true);
         }
     }
 
@@ -421,6 +432,10 @@ public class GameListener implements Listener {
             if (victim.getLocation().getY() >= safezoneY) {
                 return;
             }
+            if (damager != null && !damager.equals(victim) && !allowsPvp(victim.getLocation())) {
+                event.setCancelled(true);
+                return;
+            }
             if (damager != null && !damager.equals(victim)) {
                 long now = System.currentTimeMillis();
                 lastCombatTime.put(victim.getUniqueId(), now);
@@ -473,6 +488,7 @@ public class GameListener implements Listener {
         lastDamager.remove(dead.getUniqueId());
         combatFlags.put(dead.getUniqueId(), false);
 
+        MatchEvents.death(plugin, dead, killer);
         if (killer != null && !killer.equals(dead)) {
             event.setDeathMessage(TextLines.prefixed(plugin, "player-killed",
                     "&c%player% &7was killed by &a%killer%&7.",
@@ -493,7 +509,7 @@ public class GameListener implements Listener {
     private void creditKill(Player killer, Player dead, boolean announce) {
         plugin.getDataManager().rememberName(killer.getUniqueId(), killer.getName());
         plugin.getDataManager().addKill(killer.getUniqueId());
-        plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
+        CurrencyRouter.get(plugin).rewardKill(killer);
         plugin.getKillstreakManager().addKill(killer);
         Health.fill(killer);
         giveKillRewards(killer);
@@ -504,6 +520,26 @@ public class GameListener implements Listener {
             for (Player online : Bukkit.getOnlinePlayers()) {
                 onEntity(online, () -> online.sendMessage(message));
             }
+        }
+        MatchEvents.kill(plugin, killer, dead);
+    }
+
+    private boolean allowsBuild(Player player, Location location) {
+        return regionRules() == null || regionRules().allowsBuild(plugin, location);
+    }
+
+    private boolean allowsPvp(Location location) {
+        return regionRules() == null || regionRules().allowsPvp(plugin, location);
+    }
+
+    private WorldGuardRegions regionRules() {
+        try {
+            if (plugin.services() == null) {
+                return null;
+            }
+            return plugin.services().get(WorldGuardRegions.class).orElse(null);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

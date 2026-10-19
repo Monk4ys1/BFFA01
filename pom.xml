@@ -125,6 +125,7 @@
                                 <exclude>META-INF/*.SF</exclude>
                                 <exclude>META-INF/*.DSA</exclude>
                                 <exclude>META-INF/*.RSA</exclude>
+                                <exclude>me/clip/**</exclude>
                             </excludes>
                         </filter>
                     </filters>
@@ -224,6 +225,20 @@
                                     <resourcecontains resource="${project.build.directory}/${project.build.finalName}.jar" substring="net/kyori/adventure/text/minimessage/MiniMessage.class"/>
                                 </condition>
                                 <fail if="adventure.leaked" message="Unrelocated Adventure classes are still in the plugin jar."/>
+                                <delete dir="${project.build.directory}/jar-scan" quiet="true"/>
+                                <unzip src="${project.build.directory}/${project.build.finalName}.jar" dest="${project.build.directory}/jar-scan">
+                                    <patternset>
+                                        <include name="me/clip/**"/>
+                                        <include name="infinode/org/example/bFFA01/hooks/papi/BffaExpansion.class"/>
+                                        <include name="infinode/org/example/bFFA01/api/BuildFFA.class"/>
+                                    </patternset>
+                                </unzip>
+                                <available file="${project.build.directory}/jar-scan/me/clip/placeholderapi/PlaceholderHook.class" property="papi.stub.leaked"/>
+                                <fail if="papi.stub.leaked" message="PlaceholderAPI stub classes leaked into the plugin jar."/>
+                                <available file="${project.build.directory}/jar-scan/infinode/org/example/bFFA01/hooks/papi/BffaExpansion.class" property="papi.expansion.present"/>
+                                <fail unless="papi.expansion.present" message="PlaceholderAPI expansion class is missing from the plugin jar."/>
+                                <available file="${project.build.directory}/jar-scan/infinode/org/example/bFFA01/api/BuildFFA.class" property="public.api.present"/>
+                                <fail unless="public.api.present" message="Public BuildFFA API is missing from the plugin jar."/>
                             </target>
                         </configuration>
                     </execution>

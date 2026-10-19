@@ -14,4 +14,14 @@ public interface Integration {
     void enable(BFFA01 plugin);
 
     void disable();
+
+    /**
+     * Config can turn a present plugin off without unloading it.
+     */
+    default boolean available(BFFA01 plugin) {
+        return true;
+    }
+
+    default void reload(BFFA01 plugin) {
+    }
 }

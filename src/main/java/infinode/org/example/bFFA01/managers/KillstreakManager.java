@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.PotionEffects;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -28,35 +29,44 @@ public class KillstreakManager {
         int streak = streaks.getOrDefault(uuid, 0) + 1;
         streaks.put(uuid, streak);
 
+        boolean milestone = false;
         if (streak == 3) {
             tell(player, "killstreak-3", "&bKillstreak: 3! You received Speed II!", Map.of());
             PotionEffectType speed = PotionEffects.speed();
             if (speed != null) {
                 player.addPotionEffect(new PotionEffect(speed, 20 * 10, 1));
             }
+            milestone = true;
         } else if (streak == 5) {
             tell(player, "killstreak-5", "&bKillstreak: 5! You received 5 Cobwebs!", Map.of());
             player.getInventory().addItem(new ItemStack(Material.COBWEB, 5));
+            milestone = true;
         } else if (streak == 10) {
             tell(player, "killstreak-10", "&bKillstreak: 10! You received a Golden Apple!", Map.of());
             player.getInventory().addItem(new ItemStack(Material.GOLDEN_APPLE, 1));
             announce("killstreak-broadcast", "&6%player% is on a 10 Killstreak!",
                     Map.of("player", player.getName(), "streak", Integer.toString(streak)));
+            milestone = true;
         } else if (streak > 3 && streak % 5 == 0) {
             tell(player, "killstreak-generic", "&bKillstreak: %streak%!", Map.of("streak", Integer.toString(streak)));
             announce("killstreak-broadcast", "&6%player% is on a %streak% Killstreak!",
                     Map.of("player", player.getName(), "streak", Integer.toString(streak)));
+            milestone = true;
+        }
+        if (milestone) {
+            MatchEvents.streak(plugin, player, streak, false);
         }
     }
 
     public void resetStreak(Player player) {
         UUID uuid = player.getUniqueId();
         int streak = streaks.getOrDefault(uuid, 0);
+        streaks.put(uuid, 0);
         if (streak >= 5) {
             announce("killstreak-ruined", "&c%player%'s Killstreak of %streak% was ruined!",
                     Map.of("player", player.getName(), "streak", Integer.toString(streak)));
+            MatchEvents.streak(plugin, player, streak, true);
         }
-        streaks.put(uuid, 0);
     }
 
     public int getStreak(Player player) {
