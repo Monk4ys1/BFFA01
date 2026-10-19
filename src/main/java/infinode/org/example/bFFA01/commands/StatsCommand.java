@@ -22,7 +22,10 @@ public class StatsCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) return true;
+        if (!(sender instanceof Player)) {
+            sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
+            return true;
+        }
 
         Player player = (Player) sender;
         if (plugin.presentation() != null && plugin.presentation().menus().open(player, "stats")) {

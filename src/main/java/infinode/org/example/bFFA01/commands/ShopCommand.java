@@ -29,6 +29,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
+            sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
             return true;
         }
         openShop(player);
