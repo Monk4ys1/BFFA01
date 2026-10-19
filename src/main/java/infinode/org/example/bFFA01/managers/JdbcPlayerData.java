@@ -34,6 +34,7 @@ final class JdbcPlayerData implements PlayerData {
     private TaskRunner.Cancellable pending = TaskRunner.Cancellable.NONE;
     private long latestGeneration;
     private int consecutiveFailures;
+    private volatile boolean closed;
 
     JdbcPlayerData(BFFA01 plugin, StorageSettings settings) throws SQLException {
         this.plugin = plugin;
@@ -226,7 +227,25 @@ final class JdbcPlayerData implements PlayerData {
     }
 
     @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        pending.cancel();
+        pending = TaskRunner.Cancellable.NONE;
+        try {
+            repository.close();
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not close SQL storage: " + ex.getMessage());
+        }
+    }
+
+    @Override
     public void flush() {
+        if (closed) {
+            return;
+        }
         pending.cancel();
         pending = TaskRunner.Cancellable.NONE;
         gate.clear();
@@ -246,7 +265,7 @@ final class JdbcPlayerData implements PlayerData {
     }
 
     private void requestSave(long delayTicks) {
-        if (!gate.markAndShouldSchedule()) {
+        if (closed || !gate.markAndShouldSchedule()) {
             return;
         }
         pending = tasks().runLater(this::snapshotAndScheduleWrite, delayTicks);
@@ -261,7 +280,7 @@ final class JdbcPlayerData implements PlayerData {
 
     private void snapshotAndScheduleWrite() {
         pending = TaskRunner.Cancellable.NONE;
-        if (!gate.takeSnapshotRequest()) {
+        if (closed || !gate.takeSnapshotRequest()) {
             return;
         }
         final List<PlayerRecord> snapshot = snapshot();
@@ -286,7 +305,7 @@ final class JdbcPlayerData implements PlayerData {
         boolean retry = false;
         long retryDelay = DataManager.SAVE_DELAY_TICKS;
         synchronized (writeLock) {
-            if (generation != latestGeneration) {
+            if (closed || generation != latestGeneration) {
                 return;
             }
             try {

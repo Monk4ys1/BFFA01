@@ -188,9 +188,13 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void reload(CommandSender sender) {
-        plugin.reloadPluginConfig();
+        boolean storage = plugin.reloadPluginConfig();
         reply(sender, "reload-done", "&aReloaded config, messages, and the scoreboard.", Map.of());
-        reply(sender, "reload-storage", "&7Storage changes apply after a restart.", Map.of());
+        if (storage) {
+            reply(sender, "reload-storage-ok", "&aStorage reconnected.", Map.of());
+        } else {
+            reply(sender, "reload-storage-failed", "&cStorage reconnect failed. The previous store is still in use.", Map.of());
+        }
     }
 
     private Integer parsePositiveAmount(CommandSender sender, String raw) {

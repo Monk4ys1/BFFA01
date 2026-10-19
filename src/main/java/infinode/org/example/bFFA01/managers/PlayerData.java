@@ -47,4 +47,7 @@ interface PlayerData {
     List<KillEntry> topKills(int limit);
 
     void flush();
+
+    default void close() {
+    }
 }

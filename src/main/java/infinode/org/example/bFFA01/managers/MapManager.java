@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.Health;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
+import infinode.org.example.bFFA01.hooks.MatchEvents;
 import infinode.org.example.bFFA01.text.TextLines;
 import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
@@ -119,6 +120,7 @@ public class MapManager {
             return;
         }
 
+        String previous = currentMap;
         String next = null;
         synchronized (timerLock) {
             if (specificMap != null && mapNames().contains(specificMap)) {
@@ -137,6 +139,7 @@ public class MapManager {
         }
         currentMap = next;
         loadSpawn(currentMap);
+        MatchEvents.map(plugin, previous, currentMap);
 
         String finalMessage = TextLines.prefixed(plugin, "map-swapped",
                 "&7The map has been changed to &e%map%&7!",
@@ -203,8 +206,20 @@ public class MapManager {
         player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
     }
 
+    public void refreshLeaderboard() {
+        refreshHologram();
+    }
+
+    public Location spawn() {
+        return currentSpawn == null ? null : currentSpawn.clone();
+    }
+
     private void refreshHologram() {
-        if (!plugin.getConfig().getBoolean("holograms.enabled", false) || plugin.getHologramManager() == null || currentSpawn == null) {
+        if (plugin.getHologramManager() == null) {
+            return;
+        }
+        if (!plugin.getConfig().getBoolean("holograms.enabled", false) || currentSpawn == null) {
+            plugin.getHologramManager().clear();
             return;
         }
         Location spawn = currentSpawn.clone();

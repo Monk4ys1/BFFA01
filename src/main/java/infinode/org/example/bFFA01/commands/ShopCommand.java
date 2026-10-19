@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.hooks.Integrations;
 import infinode.org.example.bFFA01.listeners.ShopInventoryHolder;
 import infinode.org.example.bFFA01.shop.ShopOffer;
 import infinode.org.example.bFFA01.text.TextLines;
@@ -29,6 +30,9 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
+            return true;
+        }
+        if (Integrations.openBedrockShop(plugin, player)) {
             return true;
         }
         openShop(player);

@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.hooks.hologram.HologramHub;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.Bukkit;
@@ -25,6 +26,7 @@ public class HologramManager {
     }
 
     public void clear() {
+        clearExternal();
         for (UUID uuid : hologramUUIDs) {
             Entity entity = Bukkit.getEntity(uuid);
             if (entity != null) {
@@ -44,23 +46,55 @@ public class HologramManager {
             return;
         }
 
-        List<KillEntry> top = plugin.getDataManager().topKills(3);
+        List<String> lines = lines();
+        if (external(spawnLoc, lines)) {
+            return;
+        }
         Location loc = spawnLoc.clone().add(0, 3.5, 0);
+        for (String line : lines) {
+            spawnLine(loc, line);
+            loc.subtract(0, 0.3, 0);
+        }
+    }
 
-        spawnLine(loc, TextLines.render(plugin, "hologram-title", "&b&lTop Kills", Map.of()));
-        loc.subtract(0, 0.3, 0);
-
+    private List<String> lines() {
+        List<String> lines = new ArrayList<>();
+        List<KillEntry> top = plugin.getDataManager().topKills(3);
+        lines.add(TextLines.render(plugin, "hologram-title", "&b&lTop Kills", Map.of()));
         int rank = 1;
         for (KillEntry entry : top) {
             String name = entry.name() == null || entry.name().isBlank() ? "Unknown" : entry.name();
-            spawnLine(loc, TextLines.render(plugin, "hologram-line", "&e#%rank% &7%player%: &b%kills%",
+            lines.add(TextLines.render(plugin, "hologram-line", "&e#%rank% &7%player%: &b%kills%",
                     Map.of("rank", Integer.toString(rank), "player", name, "kills", Integer.toString(entry.kills()))));
-            loc.subtract(0, 0.3, 0);
             rank++;
         }
-
         if (top.isEmpty()) {
-            spawnLine(loc, TextLines.render(plugin, "hologram-empty", "&7No stats yet!", Map.of()));
+            lines.add(TextLines.render(plugin, "hologram-empty", "&7No stats yet!", Map.of()));
+        }
+        return lines;
+    }
+
+    private boolean external(Location spawn, List<String> lines) {
+        try {
+            if (plugin.services() == null) {
+                return false;
+            }
+            HologramHub hub = plugin.services().get(HologramHub.class).orElse(null);
+            return hub != null && hub.show(plugin, spawn.clone().add(0, 3.5, 0), lines);
+        } catch (Throwable ex) {
+            plugin.getLogger().warning("Hologram plugin was skipped: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private void clearExternal() {
+        try {
+            if (plugin.services() == null) {
+                return;
+            }
+            plugin.services().get(HologramHub.class).ifPresent(HologramHub::clear);
+        } catch (Throwable ignored) {
+            // Armor stands are still removed below.
         }
     }
 
