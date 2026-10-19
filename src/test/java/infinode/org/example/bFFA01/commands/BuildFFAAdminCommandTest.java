@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -87,5 +88,12 @@ class BuildFFAAdminCommandTest {
     void nonPositiveAmountIsRejected() {
         command.onCommand(sender, null, "bffa", new String[]{"addcoins", "Notch", "0"});
         verify(data, never()).addCoins(eq(notchId), anyInt());
+    }
+
+    @Test
+    void childPermissionOnlyCompletesThatSubcommand() {
+        CommandSender limited = mock(CommandSender.class);
+        when(limited.hasPermission("bffa.admin.setmap")).thenReturn(true);
+        assertEquals(java.util.List.of("setmap"), command.onTabComplete(limited, null, "bffa", new String[]{"s"}));
     }
 }

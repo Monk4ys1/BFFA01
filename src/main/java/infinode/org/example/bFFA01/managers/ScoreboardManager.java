@@ -1,25 +1,27 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.compat.ServerScheduler;
+import infinode.org.example.bFFA01.hooks.PlaceholderResolver;
+import infinode.org.example.bFFA01.text.MiniText;
 import infinode.org.example.bFFA01.util.MapNames;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 public class ScoreboardManager {
     private final BFFA01 plugin;
-    private File file;
+    private final File file;
     private FileConfiguration config;
 
     public ScoreboardManager(BFFA01 plugin) {
@@ -38,7 +40,8 @@ public class ScoreboardManager {
 
     public void setScoreboard(Player player) {
         Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-        Objective obj = board.registerNewObjective("bffa", "dummy", ChatColor.translateAlternateColorCodes('&', config.getString("title", "&b&lBuildFFA")));
+        String title = MiniText.limit(MiniText.render(config.getString("title", "&b&lBuildFFA"), Map.of()), 128);
+        Objective obj = board.registerNewObjective("bffa", "dummy", title);
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         List<String> lines = config.getStringList("lines");
@@ -56,12 +59,16 @@ public class ScoreboardManager {
 
     public void updateScoreboard(Player player) {
         Scoreboard board = player.getScoreboard();
-        if (board == null) return;
+        if (board == null) {
+            return;
+        }
         Objective obj = board.getObjective("bffa");
-        if (obj == null) return;
+        if (obj == null) {
+            return;
+        }
 
         List<String> lines = config.getStringList("lines");
-        
+
         int kills = plugin.getDataManager().getKills(player.getUniqueId());
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         int streak = plugin.getKillstreakManager().getStreak(player);
@@ -70,6 +77,7 @@ public class ScoreboardManager {
                 ? MapNames.sanitizeLabel(plugin.getMapManager().getCurrentMap())
                 : "None";
 
+        PlaceholderResolver resolver = resolver();
         for (int i = 0; i < lines.size(); i++) {
             String rawLine = lines.get(i);
             String processedLine = rawLine
@@ -78,40 +86,42 @@ public class ScoreboardManager {
                     .replace("%kd%", String.format("%.2f", kd))
                     .replace("%streak%", String.valueOf(streak))
                     .replace("%map%", currentMap);
+            processedLine = resolver.apply(player, processedLine);
+            processedLine = MiniText.render(processedLine, Map.of());
 
-            processedLine = ChatColor.translateAlternateColorCodes('&', processedLine);
-            
             Team team = board.getTeam("line" + i);
             if (team != null) {
-                team.setPrefix(limitTeamPrefix(processedLine));
+                team.setPrefix(MiniText.limit(processedLine, 64));
             }
         }
     }
 
-    /**
-     * Paper rejects team prefixes longer than 64 characters. A long map label
-     * or scoreboard line must not throw out of the repeating update task.
-     */
-    private static String limitTeamPrefix(String line) {
-        if (line.length() <= 64 && ChatColor.stripColor(line).length() <= 64) {
-            return line;
+    private PlaceholderResolver resolver() {
+        try {
+            if (plugin.services() == null) {
+                return PlaceholderResolver.identity();
+            }
+            return plugin.services().get(PlaceholderResolver.class).orElseGet(PlaceholderResolver::identity);
+        } catch (Throwable ignored) {
+            return PlaceholderResolver.identity();
         }
-        String trimmed = line;
-        while (!trimmed.isEmpty()
-                && (trimmed.length() > 64 || ChatColor.stripColor(trimmed).length() > 64)) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed;
     }
 
     private void startUpdateTask() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    updateScoreboard(player);
-                }
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            return;
+        }
+        scheduler.runTimer(() -> {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                scheduler.runOnEntity(player, () -> {
+                    try {
+                        updateScoreboard(player);
+                    } catch (RuntimeException ex) {
+                        plugin.getLogger().fine("Scoreboard update skipped for " + player.getName() + ": " + ex.getMessage());
+                    }
+                });
             }
-        }.runTaskTimer(plugin, 20L, 20L); // Update every 1 second
+        }, 20L, 20L);
     }
 }

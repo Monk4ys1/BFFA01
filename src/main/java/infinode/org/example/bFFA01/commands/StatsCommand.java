@@ -1,13 +1,18 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
-import org.bukkit.ChatColor;
+import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-public class StatsCommand implements CommandExecutor {
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+public class StatsCommand implements CommandExecutor, TabCompleter {
 
     private final BFFA01 plugin;
 
@@ -24,13 +29,20 @@ public class StatsCommand implements CommandExecutor {
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         double kd = deaths == 0 ? kills : (double) kills / deaths;
 
-        player.sendMessage(ChatColor.GRAY + "------ " + ChatColor.AQUA + "Your Stats" + ChatColor.GRAY + " ------");
-        player.sendMessage(ChatColor.GRAY + "Kills: " + ChatColor.GREEN + kills);
-        player.sendMessage(ChatColor.GRAY + "Deaths: " + ChatColor.RED + deaths);
-        player.sendMessage(ChatColor.GRAY + "K/D: " + ChatColor.YELLOW + String.format("%.2f", kd));
-        player.sendMessage(ChatColor.GRAY + "Coins: " + ChatColor.GOLD + plugin.getDataManager().getCoins(player.getUniqueId()));
-        player.sendMessage(ChatColor.GRAY + "-------------------------");
+        String ratio = String.format(Locale.US, "%.2f", kd);
+        String coins = Integer.toString(plugin.getDataManager().getCoins(player.getUniqueId()));
+        player.sendMessage(TextLines.render(plugin, "stats-header", "&7------ &bYour Stats &7------", Map.of()));
+        player.sendMessage(TextLines.render(plugin, "stats-kills", "&7Kills: &a%kills%", Map.of("kills", Integer.toString(kills))));
+        player.sendMessage(TextLines.render(plugin, "stats-deaths", "&7Deaths: &c%deaths%", Map.of("deaths", Integer.toString(deaths))));
+        player.sendMessage(TextLines.render(plugin, "stats-kd", "&7K/D: &e%kd%", Map.of("kd", ratio)));
+        player.sendMessage(TextLines.render(plugin, "stats-coins", "&7Coins: &6%coins%", Map.of("coins", coins)));
+        player.sendMessage(TextLines.render(plugin, "stats-footer", "&7-------------------------", Map.of()));
 
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        return List.of();
     }
 }

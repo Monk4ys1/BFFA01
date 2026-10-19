@@ -1,4 +1,29 @@
-# BuildFFA Configuration
+# BuildFFA configuration
+# config-version is migrated automatically. Do not delete it.
+config-version: 2
+
+# Language file in plugins/BFFA01/lang/. Ships with en and de.
+# Any messages: keys still present in this file override the language file.
+language: en
+
+# yaml (default), sqlite, or mysql.
+# SQLite is bundled. MySQL needs mariadb-java-client.jar or mysql-connector-j.jar
+# in plugins/BFFA01/drivers/, then a restart.
+storage:
+  type: yaml
+  sqlite:
+    file: data.db
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: bffa
+    username: bffa
+    password: ""
+    parameters: "useSSL=false&allowPublicKeyRetrieval=true"
+
+# Armor-stand leaderboard above the current spawn. Leave false unless you want it.
+holograms:
+  enabled: false
 
 # The time in seconds between map swaps
 map-swap-interval: 600
@@ -43,19 +68,19 @@ maps:
     death-y-level: 162
     safezone-y-level: 232
 
-# Kit configuration
+# Kit configuration. Enchantment names accept both modern ids (sharpness) and legacy ids (DAMAGE_ALL).
 kit:
   inventory:
     0:
       material: IRON_SWORD
       amount: 1
       enchantments:
-        SHARPNESS: 1
+        sharpness: 1
     1:
       material: STICK
       amount: 1
       enchantments:
-        KNOCKBACK: 1
+        knockback: 1
     2:
       material: SANDSTONE
       amount: 64
@@ -74,15 +99,3 @@ kit:
       material: IRON_LEGGINGS
     boots:
       material: IRON_BOOTS
-
-messages:
-  prefix: "&8[&bBuildFFA&8] "
-  join: "&8[&a+&8] &7%player%"
-  quit: "&8[&c-&8] &7%player%"
-  map-swapped: "&7The map has been changed to &e%map%&7!"
-  map-swap-warning: "&7The map will change in &e%seconds% &7seconds!"
-  player-killed: "&c%player% &7was killed by &a%killer%&7."
-  player-died: "&c%player% &7died."
-  command-usage: "&cUsage: /bffa <setmap> <mapname>"
-  no-permission: "&cYou do not have permission to do that."
-  map-set: "&aSpawn location for map &e%map% &aset successfully."

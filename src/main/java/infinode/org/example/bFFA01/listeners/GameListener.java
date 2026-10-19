@@ -1,57 +1,105 @@
 package infinode.org.example.bFFA01.listeners;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.compat.Health;
+import infinode.org.example.bFFA01.compat.InventoryViews;
+import infinode.org.example.bFFA01.compat.PotionEffects;
+import infinode.org.example.bFFA01.compat.ProfileBans;
+import infinode.org.example.bFFA01.compat.ServerScheduler;
+import infinode.org.example.bFFA01.compat.Sounds;
+import infinode.org.example.bFFA01.shop.ShopOffer;
+import infinode.org.example.bFFA01.text.TextLines;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Sound;
+import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
-import org.bukkit.entity.*;
+import org.bukkit.entity.Arrow;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Fireball;
+import org.bukkit.entity.Item;
+import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Snowball;
+import org.bukkit.entity.TNTPrimed;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.entity.*;
-import org.bukkit.event.player.*;
+import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityRegainHealthEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerFishEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GameListener implements Listener {
 
     private final BFFA01 plugin;
-    private final List<TrackedPlacement> placedBlocks;
-    private final Map<UUID, Boolean> vampireFangActive = new HashMap<>();
-    private final Map<UUID, Long> lastCombatTime = new HashMap<>();
-    private final Map<UUID, UUID> lastDamager = new HashMap<>();
+    private final List<TrackedPlacement> placedBlocks = Collections.synchronizedList(new ArrayList<>());
+    private final Map<UUID, Boolean> vampireFangActive = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastCombatTime = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> lastDamager = new ConcurrentHashMap<>();
+    private final Map<UUID, Boolean> combatFlags = new ConcurrentHashMap<>();
     private static final String COMBAT_LOG_BAN_SOURCE = "BuildFFA System";
 
     public GameListener(BFFA01 plugin) {
         this.plugin = plugin;
-        this.placedBlocks = new ArrayList<>();
         startActionbarTask();
     }
 
     public void clearAllBlocks() {
-        TrackedPlacement.restoreAll(placedBlocks);
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler != null && scheduler.folia()) {
+            List<TrackedPlacement> snapshot;
+            synchronized (placedBlocks) {
+                snapshot = new ArrayList<>(placedBlocks);
+                placedBlocks.clear();
+            }
+            for (TrackedPlacement placement : snapshot) {
+                scheduler.runAt(placement.location(), placement::forceRestore, 0L);
+            }
+            return;
+        }
+        synchronized (placedBlocks) {
+            TrackedPlacement.restoreAll(placedBlocks);
+        }
     }
 
     private int getMapSetting(String key, int fallbackKey) {
@@ -64,30 +112,18 @@ public class GameListener implements Listener {
     }
 
     private void startActionbarTask() {
-        BukkitRunnable actionbarTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
-                long pauseMillis = combatPauseSeconds * 1000L;
-                long now = System.currentTimeMillis();
-
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    if (isPlayerInCombat(player, now, pauseMillis)) {
-                        long lastCombat = lastCombatTime.get(player.getUniqueId());
-                        long remainingMillis = pauseMillis - (now - lastCombat);
-                        double remainingSeconds = remainingMillis / 1000.0;
-                        String message = ChatColor.RED + "In combat: " + ChatColor.YELLOW + String.format("%.1f", remainingSeconds) + "s";
-                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
-                    } else {
-                        // Clear combat tracking if it expired to avoid old damagers counting
-                        lastDamager.remove(player.getUniqueId());
-                    }
-                }
-
-                syncCombatNameDisplays(now, pauseMillis);
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            return;
+        }
+        scheduler.runTimer(() -> {
+            int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+            long pauseMillis = combatPauseSeconds * 1000L;
+            long now = System.currentTimeMillis();
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                scheduler.runOnEntity(player, () -> refreshCombatDisplay(player, now, pauseMillis));
             }
-        };
-        actionbarTask.runTaskTimer(plugin, 2L, 2L); // Run every 2 ticks (0.1s) for smooth updates
+        }, 2L, 2L);
     }
 
     private boolean isPlayerInCombat(Player player, long now, long pauseMillis) {
@@ -95,10 +131,10 @@ public class GameListener implements Listener {
         if (player.getLocation().getY() >= safezoneY) {
             return false;
         }
-        if (!lastCombatTime.containsKey(player.getUniqueId())) {
+        Long lastCombat = lastCombatTime.get(player.getUniqueId());
+        if (lastCombat == null) {
             return false;
         }
-        long lastCombat = lastCombatTime.get(player.getUniqueId());
         return (now - lastCombat) < pauseMillis;
     }
 
@@ -116,63 +152,43 @@ public class GameListener implements Listener {
         return team;
     }
 
-    /**
-     * Tab list names and nametag team colors: red in combat, green otherwise.
-     * Each viewer's scoreboard gets team entries for every online player so colors are visible to all.
-     */
-    private void syncCombatNameDisplays(long now, long pauseMillis) {
-        List<Player> online = new ArrayList<>(Bukkit.getOnlinePlayers());
-        if (online.isEmpty()) {
+    private void refreshCombatDisplay(Player player, long now, long pauseMillis) {
+        boolean inCombat = isPlayerInCombat(player, now, pauseMillis);
+        combatFlags.put(player.getUniqueId(), inCombat);
+        if (!inCombat) {
+            lastDamager.remove(player.getUniqueId());
+        }
+        player.setPlayerListName((inCombat ? ChatColor.RED : ChatColor.GREEN) + player.getName());
+        if (inCombat) {
+            Long lastCombat = lastCombatTime.get(player.getUniqueId());
+            long remainingMillis = pauseMillis - (now - (lastCombat == null ? now : lastCombat));
+            String seconds = String.format(Locale.US, "%.1f", remainingMillis / 1000.0);
+            String message = TextLines.render(plugin, "combat-actionbar", "&cIn combat: &e%seconds%s",
+                    Map.of("seconds", seconds));
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+        }
+
+        Scoreboard board = player.getScoreboard();
+        if (board == null) {
             return;
         }
-
-        Map<String, Boolean> inCombatByName = new HashMap<>();
-        for (Player p : online) {
-            boolean inCombat = isPlayerInCombat(p, now, pauseMillis);
-            inCombatByName.put(p.getName(), inCombat);
-            
-            // Tablist format
-            if (inCombat) {
-                p.setPlayerListName(ChatColor.RED + p.getName());
-            } else {
-                p.setPlayerListName(ChatColor.GREEN + p.getName());
-            }
-        }
-
-        for (Player viewer : online) {
-            Scoreboard board = viewer.getScoreboard();
-            if (board == null) {
-                continue;
-            }
-            Team combatTeam = getOrCreateColoredTeam(board, "combat_red", ChatColor.RED);
-            Team safeTeam = getOrCreateColoredTeam(board, "combat_safe", ChatColor.GREEN);
-            
-            for (Player target : online) {
-                String name = target.getName();
-                boolean inCombat = inCombatByName.get(name);
-                if (inCombat) {
-                    if (!combatTeam.hasEntry(name)) {
-                        combatTeam.addEntry(name);
-                    }
-                } else {
-                    if (!safeTeam.hasEntry(name)) {
-                        safeTeam.addEntry(name);
-                    }
-                }
-            }
+        Team combatTeam = getOrCreateColoredTeam(board, "combat_red", ChatColor.RED);
+        Team safeTeam = getOrCreateColoredTeam(board, "combat_safe", ChatColor.GREEN);
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            CombatTeams.assign(combatTeam, safeTeam, target.getName(), Boolean.TRUE.equals(combatFlags.get(target.getUniqueId())));
         }
     }
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        
-        // Custom Join Message
-        String joinMsg = plugin.getConfig().getString("messages.join", "&8[&a+&8] &7%player%");
-        event.setJoinMessage(ChatColor.translateAlternateColorCodes('&', joinMsg.replace("%player%", player.getName())));
+        plugin.getDataManager().rememberName(player.getUniqueId(), player.getName());
+        event.setJoinMessage(TextLines.render(plugin, "join", "&8[&a+&8] &7%player%",
+                Map.of("player", player.getName())));
 
         if (!plugin.getDataManager().isWritable() && player.hasPermission("bffa.admin")) {
-            player.sendMessage(ChatColor.RED + "Player data was not loaded. data.yml was left unchanged.");
+            player.sendMessage(TextLines.render(plugin, "data-not-loaded",
+                    "&cPlayer data was not loaded. data.yml was left unchanged.", Map.of()));
         }
 
         plugin.getMapManager().teleportToCurrentSpawn(player);
@@ -180,85 +196,63 @@ public class GameListener implements Listener {
     }
 
     @EventHandler
-    public void onPlayerLogin(PlayerLoginEvent event) {
-        // Since we unban them immediately, this allows them to join right back.
-        // We catch them here just in case Bukkit hasn't processed the unban yet
-        // but normally it's fast enough. We don't need to do anything special.
-    }
-
-    @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         String name = player.getName();
+        forgetTeams(player, name);
 
-        for (Player other : Bukkit.getOnlinePlayers()) {
-            if (other.getUniqueId().equals(player.getUniqueId())) {
-                continue;
-            }
-            Scoreboard board = other.getScoreboard();
-            if (board == null) {
-                continue;
-            }
-            Team red = board.getTeam("combat_red");
-            if (red != null) {
-                red.removeEntry(name);
-            }
-            Team safe = board.getTeam("combat_safe");
-            if (safe != null) {
-                safe.removeEntry(name);
-            }
-        }
-
-        // Handle Combat Logging
         long now = System.currentTimeMillis();
         int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
         long pauseMillis = combatPauseSeconds * 1000L;
-        String prefix = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] "));
-        
+
         if (isPlayerInCombat(player, now, pauseMillis)) {
             UUID damagerId = lastDamager.get(player.getUniqueId());
             if (damagerId != null) {
                 Player killer = Bukkit.getPlayer(damagerId);
                 if (killer != null && killer.isOnline() && !killer.equals(player)) {
-                    // Credit kill to the last person who hit them
-                    plugin.getDataManager().addKill(killer.getUniqueId());
-                    plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
-                    plugin.getKillstreakManager().addKill(killer);
-                    
-                    String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &a%killer%&7.");
-                    String translated = ChatColor.translateAlternateColorCodes('&', killMessage.replace("%player%", player.getName()).replace("%killer%", killer.getName()));
-                    Bukkit.broadcastMessage(prefix + translated);
-                    
-                    killer.setHealth(killer.getMaxHealth());
-                    giveKillRewards(killer);
+                    onEntity(killer, () -> creditKill(killer, player, true));
                 }
             }
-            
+
             plugin.getDataManager().addDeath(player.getUniqueId());
             plugin.getKillstreakManager().resetStreak(player);
-
-            // Memory Leak Prevention BEFORE the kick delay logic to ensure it runs
             vampireFangActive.remove(player.getUniqueId());
             lastCombatTime.remove(player.getUniqueId());
             lastDamager.remove(player.getUniqueId());
-
-            // Short name ban so the disconnect screen shows the combat-log reason.
-            // Never replace or pardon a ban this plugin did not just create.
+            combatFlags.remove(player.getUniqueId());
             applyCombatLogBan(player, now);
-            
-            // Since they are combat logging, we don't want to broadcast the normal quit message
             event.setQuitMessage(null);
             return;
         }
 
-        // Normal Quit Clean up maps
         vampireFangActive.remove(player.getUniqueId());
         lastCombatTime.remove(player.getUniqueId());
         lastDamager.remove(player.getUniqueId());
+        combatFlags.remove(player.getUniqueId());
+        event.setQuitMessage(TextLines.render(plugin, "quit", "&8[&c-&8] &7%player%",
+                Map.of("player", player.getName())));
+    }
 
-        // Custom Quit Message
-        String quitMsg = plugin.getConfig().getString("messages.quit", "&8[&c-&8] &7%player%");
-        event.setQuitMessage(ChatColor.translateAlternateColorCodes('&', quitMsg.replace("%player%", player.getName())));
+    private void forgetTeams(Player player, String name) {
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.getUniqueId().equals(player.getUniqueId())) {
+                continue;
+            }
+            onEntity(other, () -> {
+                Scoreboard board = other.getScoreboard();
+                if (board == null) {
+                    return;
+                }
+                Team red = board.getTeam("combat_red");
+                if (red != null) {
+                    red.removeEntry(name);
+                }
+                Team safe = board.getTeam("combat_safe");
+                if (safe != null) {
+                    safe.removeEntry(name);
+                }
+            });
+        }
     }
 
     private void applyCombatLogBan(Player player, long now) {
@@ -266,36 +260,29 @@ public class GameListener implements Listener {
         if (banTarget == null || banTarget.isEmpty()) {
             return;
         }
-        if (isProfileBanned(player)) {
+        if (ProfileBans.isBanned(player)) {
             return;
         }
         org.bukkit.BanList nameBans = Bukkit.getBanList(org.bukkit.BanList.Type.NAME);
         if (nameBans.isBanned(banTarget)) {
             return;
         }
+        String reason = TextLines.render(plugin, "combat-log-kick",
+                "&cYou have been kicked for Combat Logging.\nYour attacker was awarded the kill.", Map.of());
         org.bukkit.BanEntry created = nameBans.addBan(
                 banTarget,
-                ChatColor.RED + "You have been kicked for Combat Logging.\nYour attacker was awarded the kill.",
+                reason,
                 new java.util.Date(now + 2000L),
                 COMBAT_LOG_BAN_SOURCE
         );
         if (created == null || !COMBAT_LOG_BAN_SOURCE.equals(created.getSource())) {
             return;
         }
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> pardonOwnCombatLogBan(banTarget), 10L);
-    }
-
-    private boolean isProfileBanned(Player player) {
-        try {
-            org.bukkit.profile.PlayerProfile profile = player.getPlayerProfile();
-            if (profile == null || profile.getUniqueId() == null) {
-                return false;
-            }
-            org.bukkit.ban.ProfileBanList profiles = Bukkit.getBanList(org.bukkit.BanList.Type.PROFILE);
-            return profiles.isBanned(profile);
-        } catch (RuntimeException ex) {
-            plugin.getLogger().warning("Could not check profile ban for " + player.getName() + ": " + ex.getMessage());
-            return true;
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> pardonOwnCombatLogBan(banTarget), 10L);
+        } else {
+            scheduler.runLater(() -> pardonOwnCombatLogBan(banTarget), 10L);
         }
     }
 
@@ -318,12 +305,11 @@ public class GameListener implements Listener {
         long now = System.currentTimeMillis();
         int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
         long pauseMillis = combatPauseSeconds * 1000L;
-        
-        // Block commands during combat so players cannot escape with /hub or /spawn.
-        // Staff keep command access so a combat tag cannot lock out moderation.
+
         if (isPlayerInCombat(player, now, pauseMillis) && !player.hasPermission("bffa.admin")) {
             event.setCancelled(true);
-            player.sendMessage(ChatColor.RED + "You cannot use commands while in combat!");
+            player.sendMessage(TextLines.render(plugin, "combat-command-blocked",
+                    "&cYou cannot use commands while in combat!", Map.of()));
         }
     }
 
@@ -331,7 +317,8 @@ public class GameListener implements Listener {
     public void onBlockPlace(BlockPlaceEvent event) {
         if (plugin.getMapManager().isSwapping()) {
             event.setCancelled(true);
-            event.getPlayer().sendMessage(ChatColor.RED + "You cannot place blocks while the map is swapping!");
+            event.getPlayer().sendMessage(TextLines.render(plugin, "place-blocked-swap",
+                    "&cYou cannot place blocks while the map is swapping!", Map.of()));
             return;
         }
 
@@ -348,39 +335,43 @@ public class GameListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlaceMonitor(BlockPlaceEvent event) {
-        for (TrackedPlacement placement : TrackedPlacement.trackEvent(placedBlocks, event)) {
-            scheduleRemoval(placement);
+        List<TrackedPlacement> scheduled;
+        synchronized (placedBlocks) {
+            scheduled = new ArrayList<>(TrackedPlacement.trackEvent(placedBlocks, event));
+        }
+        int delaySeconds = plugin.getConfig().getInt("block-remove-delay", 5);
+        int warningTime = Math.max(1, delaySeconds - 2);
+        for (TrackedPlacement placement : scheduled) {
+            scheduleAt(placement, this::warnPlacement, warningTime * 20L);
+            scheduleAt(placement, this::releasePlacement, delaySeconds * 20L);
         }
     }
 
-    private void scheduleRemoval(TrackedPlacement placement) {
-        int delaySeconds = plugin.getConfig().getInt("block-remove-delay", 5);
-        int warningTime = Math.max(1, delaySeconds - 2);
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!placedBlocks.contains(placement) || !placement.shouldWarn()) {
-                    return;
-                }
-                if (!placement.stillOurs()) {
-                    return;
-                }
-                placement.applyWarning();
+    private void warnPlacement(TrackedPlacement placement) {
+        synchronized (placedBlocks) {
+            if (!placedBlocks.contains(placement) || !placement.shouldWarn() || !placement.stillOurs()) {
+                return;
             }
-        }.runTaskLater(plugin, warningTime * 20L);
+            placement.applyWarning();
+        }
+    }
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!placedBlocks.contains(placement)) {
-                    return;
-                }
-                if (placement.release()) {
-                    placedBlocks.removeAll(placement.members());
-                }
+    private void releasePlacement(TrackedPlacement placement) {
+        synchronized (placedBlocks) {
+            if (placedBlocks.contains(placement) && placement.release()) {
+                placedBlocks.removeAll(placement.members());
             }
-        }.runTaskLater(plugin, delaySeconds * 20L);
+        }
+    }
+
+    private void scheduleAt(TrackedPlacement placement, java.util.function.Consumer<TrackedPlacement> action, long delayTicks) {
+        ServerScheduler scheduler = plugin.scheduler();
+        Runnable task = () -> action.accept(placement);
+        if (scheduler == null) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, task, delayTicks);
+            return;
+        }
+        scheduler.runAt(placement.location(), task, delayTicks);
     }
 
     @EventHandler
@@ -390,88 +381,81 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
+        Location to = event.getTo();
+        Location from = event.getFrom();
+        if (to == null) {
+            return;
+        }
+        if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
+            return;
+        }
         int safeY = getMapSetting("death-y-level", 50);
-
-        if (player.getLocation().getY() < safeY) {
-            if (player.getHealth() > 0 && !player.isDead()) {
-                player.setHealth(0.0);
-            }
+        Player player = event.getPlayer();
+        if (to.getY() < safeY && player.getHealth() > 0 && !player.isDead()) {
+            player.setHealth(0.0);
         }
     }
 
     @EventHandler
     public void onDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player) {
-            Player player = (Player) event.getEntity();
-            
-            if (event.getCause() == EntityDamageEvent.DamageCause.FALL || event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
-                event.setCancelled(true);
-                return;
-            }
-
-            int safezoneY = getMapSetting("safezone-y-level", 90);
-            if (player.getLocation().getY() >= safezoneY) {
-                event.setCancelled(true);
-            }
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (event.getCause() == EntityDamageEvent.DamageCause.FALL
+                || event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
+                || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
+            event.setCancelled(true);
+            return;
+        }
+        int safezoneY = getMapSetting("safezone-y-level", 90);
+        if (player.getLocation().getY() >= safezoneY) {
+            event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getEntity() instanceof Player) {
-            Player victim = (Player) event.getEntity();
-            Player damager = null;
-            
-            if (event.getDamager() instanceof Player) {
-                damager = (Player) event.getDamager();
-            } else if (event.getDamager() instanceof Projectile) {
-                Projectile proj = (Projectile) event.getDamager();
-                if (proj.getShooter() instanceof Player) {
-                    damager = (Player) proj.getShooter();
-                }
-            }
-
+        if (event.getEntity() instanceof Player victim) {
+            Player damager = attacker(event.getDamager());
             int safezoneY = getMapSetting("safezone-y-level", 90);
             if (victim.getLocation().getY() >= safezoneY) {
-                return; // Combat cooldown doesn't apply above safezone
+                return;
             }
-
             if (damager != null && !damager.equals(victim)) {
-                // Update combat time for both players
                 long now = System.currentTimeMillis();
                 lastCombatTime.put(victim.getUniqueId(), now);
                 lastCombatTime.put(damager.getUniqueId(), now);
-                
-                // Track who hit the victim last for combat logging
                 lastDamager.put(victim.getUniqueId(), damager.getUniqueId());
 
-                // Vampire Fang Logic
                 if (vampireFangActive.getOrDefault(damager.getUniqueId(), false)) {
-                    damager.setHealth(damager.getMaxHealth());
-                    damager.playSound(damager.getLocation(), Sound.ENTITY_WITCH_DRINK, 1.0f, 1.0f);
-                    damager.sendMessage(ChatColor.DARK_RED + "Vampire Fang activated! You stole their life!");
+                    Health.fill(damager);
+                    Sounds.play(damager, 1.0f, 1.0f, "ENTITY_WITCH_DRINK");
+                    damager.sendMessage(TextLines.render(plugin, "vampire-activated",
+                            "&4Vampire Fang activated! You stole their life!", Map.of()));
                     vampireFangActive.put(damager.getUniqueId(), false);
                 }
             }
         }
 
-        // Fireball Knockback Only
-        if (event.getDamager() instanceof Fireball && event.getEntity() instanceof Player) {
-            Player hit = (Player) event.getEntity();
-            Fireball fireball = (Fireball) event.getDamager();
-            
-            event.setDamage(0); // No damage
-            
-            // Push player away from fireball (Massive Knockback)
+        if (event.getDamager() instanceof Fireball fireball && event.getEntity() instanceof Player hit) {
+            event.setDamage(0);
             Vector push = hit.getLocation().toVector().subtract(fireball.getLocation().toVector()).normalize().multiply(3.5).setY(1.2);
             hit.setVelocity(push);
         }
     }
 
+    private static Player attacker(Entity damager) {
+        if (damager instanceof Player player) {
+            return player;
+        }
+        if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player player) {
+            return player;
+        }
+        return null;
+    }
+
     @EventHandler
     public void onItemDamage(PlayerItemDamageEvent event) {
-        // Prevent armor and weapons from losing durability
         event.setCancelled(true);
     }
 
@@ -482,47 +466,50 @@ public class GameListener implements Listener {
 
         Player dead = event.getEntity();
         Player killer = dead.getKiller();
-        String prefix = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("messages.prefix", "&8[&bBuildFFA&8] "));
 
         plugin.getDataManager().addDeath(dead.getUniqueId());
         plugin.getKillstreakManager().resetStreak(dead);
-        
-        // Remove from combat tag on death
         lastCombatTime.remove(dead.getUniqueId());
         lastDamager.remove(dead.getUniqueId());
-        syncCombatNameDisplays(System.currentTimeMillis(), plugin.getConfig().getInt("combat-regen-pause", 10) * 1000L);
+        combatFlags.put(dead.getUniqueId(), false);
 
         if (killer != null && !killer.equals(dead)) {
-            plugin.getDataManager().addKill(killer.getUniqueId());
-            plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
-            plugin.getKillstreakManager().addKill(killer);
-            
-            String killMessage = plugin.getConfig().getString("messages.player-killed", "&c%player% &7was killed by &a%killer%&7.");
-            String translated = ChatColor.translateAlternateColorCodes('&', killMessage.replace("%player%", dead.getName()).replace("%killer%", killer.getName()));
-            event.setDeathMessage(prefix + translated);
-            
-            killer.setHealth(killer.getMaxHealth());
-
-            // Give blocks and reset arrows on kill
-            giveKillRewards(killer);
-
+            event.setDeathMessage(TextLines.prefixed(plugin, "player-killed",
+                    "&c%player% &7was killed by &a%killer%&7.",
+                    Map.of("player", dead.getName(), "killer", killer.getName())));
+            onEntity(killer, () -> creditKill(killer, dead, false));
         } else {
-            String deathMessage = plugin.getConfig().getString("messages.player-died", "&c%player% &7died.");
-            String translated = ChatColor.translateAlternateColorCodes('&', deathMessage.replace("%player%", dead.getName()));
-            event.setDeathMessage(prefix + translated);
+            event.setDeathMessage(TextLines.prefixed(plugin, "player-died",
+                    "&c%player% &7died.", Map.of("player", dead.getName())));
         }
 
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+        later(dead, () -> {
             if (dead.isDead()) {
                 dead.spigot().respawn();
             }
         }, 5L);
     }
 
+    private void creditKill(Player killer, Player dead, boolean announce) {
+        plugin.getDataManager().rememberName(killer.getUniqueId(), killer.getName());
+        plugin.getDataManager().addKill(killer.getUniqueId());
+        plugin.getDataManager().addCoins(killer.getUniqueId(), 5);
+        plugin.getKillstreakManager().addKill(killer);
+        Health.fill(killer);
+        giveKillRewards(killer);
+        if (announce) {
+            String message = TextLines.prefixed(plugin, "player-killed",
+                    "&c%player% &7was killed by &a%killer%&7.",
+                    Map.of("player", dead.getName(), "killer", killer.getName()));
+            for (Player online : Bukkit.getOnlinePlayers()) {
+                onEntity(online, () -> online.sendMessage(message));
+            }
+        }
+    }
+
     private void giveKillRewards(Player player) {
-        // Find default arrow amount from config
         int defaultArrows = 0;
-        Material blockMat = Material.SANDSTONE; // fallback
+        Material blockMat = Material.SANDSTONE;
 
         if (plugin.getConfig().contains("kit.inventory")) {
             for (String key : plugin.getConfig().getConfigurationSection("kit.inventory").getKeys(false)) {
@@ -531,7 +518,9 @@ public class GameListener implements Listener {
                     defaultArrows = plugin.getConfig().getInt("kit.inventory." + key + ".amount", 64);
                 } else if (matStr != null && (matStr.contains("STONE") || matStr.contains("BLOCK") || matStr.contains("WOOD") || matStr.contains("PLANKS"))) {
                     blockMat = Material.matchMaterial(matStr);
-                    if (blockMat == null) blockMat = Material.SANDSTONE;
+                    if (blockMat == null) {
+                        blockMat = Material.SANDSTONE;
+                    }
                 }
             }
         }
@@ -541,35 +530,31 @@ public class GameListener implements Listener {
 
         for (int i = 0; i < player.getInventory().getSize(); i++) {
             ItemStack item = player.getInventory().getItem(i);
-            if (item != null) {
-                if (item.getType() == Material.ARROW) {
-                    item.setAmount(defaultArrows);
-                    foundArrows = true;
-                } else if (item.getType() == blockMat) {
-                    int newAmt = Math.min(64, item.getAmount() + 16);
-                    item.setAmount(newAmt);
-                    foundBlocks = true;
-                }
+            if (item == null) {
+                continue;
+            }
+            if (item.getType() == Material.ARROW) {
+                item.setAmount(defaultArrows);
+                foundArrows = true;
+            } else if (item.getType() == blockMat) {
+                item.setAmount(Math.min(64, item.getAmount() + 16));
+                foundBlocks = true;
             }
         }
 
-        // If they ran completely out of arrows or blocks, we need to add them anew.
         if (!foundArrows && defaultArrows > 0) {
             player.getInventory().addItem(new ItemStack(Material.ARROW, defaultArrows));
         }
         if (!foundBlocks) {
             player.getInventory().addItem(new ItemStack(blockMat, 16));
         }
-        
         player.updateInventory();
     }
 
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-             plugin.getMapManager().teleportToCurrentSpawn(player);
-        }, 1L);
+        later(player, () -> plugin.getMapManager().teleportToCurrentSpawn(player), 1L);
     }
 
     @EventHandler
@@ -584,19 +569,18 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) {
+        Inventory top = InventoryViews.top(event);
+        if (top != null && top.getHolder() instanceof ShopInventoryHolder) {
             event.setCancelled(true);
             return;
         }
 
-        // Prevent putting items in the offhand slot directly or via shortcut
         if (event.getSlot() == 40 || event.getClick().toString().equals("SWAP_OFFHAND")) {
             event.setCancelled(true);
             return;
         }
 
-        if (event.getWhoClicked() instanceof Player) {
-            Player player = (Player) event.getWhoClicked();
+        if (event.getWhoClicked() instanceof Player player) {
             int safezoneY = getMapSetting("safezone-y-level", 90);
             if (player.getLocation().getY() < safezoneY) {
                 event.setCancelled(true);
@@ -606,7 +590,8 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (event.getView().getTopInventory().getHolder() instanceof ShopInventoryHolder) {
+        Inventory top = InventoryViews.top(event);
+        if (top != null && top.getHolder() instanceof ShopInventoryHolder) {
             event.setCancelled(true);
         }
     }
@@ -615,20 +600,21 @@ public class GameListener implements Listener {
     public void onArrowHit(ProjectileHitEvent event) {
         if (event.getEntity() instanceof Arrow) {
             event.getEntity().remove();
-        } else if (event.getEntity() instanceof Snowball) {
-            Snowball snowball = (Snowball) event.getEntity();
-            if (snowball.getShooter() instanceof Player && event.getHitEntity() instanceof Player) {
-                Player shooter = (Player) snowball.getShooter();
-                Player target = (Player) event.getHitEntity();
-                
-                // Switcher Ball Logic
-                Location sLoc = shooter.getLocation();
-                Location tLoc = target.getLocation();
+        } else if (event.getEntity() instanceof Snowball snowball
+                && snowball.getShooter() instanceof Player shooter
+                && event.getHitEntity() instanceof Player target) {
+            Location sLoc = shooter.getLocation();
+            Location tLoc = target.getLocation();
+            ServerScheduler scheduler = plugin.scheduler();
+            if (scheduler != null) {
+                scheduler.teleport(shooter, tLoc);
+                scheduler.teleport(target, sLoc);
+            } else {
                 shooter.teleport(tLoc);
                 target.teleport(sLoc);
-                shooter.playSound(shooter.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
-                target.playSound(target.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
             }
+            Sounds.play(shooter, 1f, 1f, "ENTITY_ENDERMAN_TELEPORT");
+            Sounds.play(target, 1f, 1f, "ENTITY_ENDERMAN_TELEPORT");
         }
     }
 
@@ -642,34 +628,27 @@ public class GameListener implements Listener {
     @EventHandler
     public void onFoodLevelChange(FoodLevelChangeEvent event) {
         event.setCancelled(true);
-        if (event.getEntity() instanceof Player) {
-            ((Player) event.getEntity()).setFoodLevel(20);
+        if (event.getEntity() instanceof Player player) {
+            player.setFoodLevel(20);
         }
     }
 
     @EventHandler
     public void onHealthRegain(EntityRegainHealthEvent event) {
-        if (event.getEntity() instanceof Player) {
-            Player player = (Player) event.getEntity();
-            
-            int safezoneY = getMapSetting("safezone-y-level", 90);
-            if (player.getLocation().getY() >= safezoneY) {
-                return; // Allow natural regeneration in safezone
-            }
-
-            // Only cancel natural regeneration (satiated/magic regen like golden apples etc. will not be affected unless intended)
-            // Note: Food level is forced to 20, so natural regen happens via SATIATED
-            if (event.getRegainReason() == EntityRegainHealthEvent.RegainReason.SATIATED || event.getRegainReason() == EntityRegainHealthEvent.RegainReason.REGEN) {
-                
-                int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
-                long pauseMillis = combatPauseSeconds * 1000L;
-                
-                if (lastCombatTime.containsKey(player.getUniqueId())) {
-                    long lastCombat = lastCombatTime.get(player.getUniqueId());
-                    if (System.currentTimeMillis() - lastCombat < pauseMillis) {
-                        event.setCancelled(true);
-                    }
-                }
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        int safezoneY = getMapSetting("safezone-y-level", 90);
+        if (player.getLocation().getY() >= safezoneY) {
+            return;
+        }
+        if (event.getRegainReason() == EntityRegainHealthEvent.RegainReason.SATIATED
+                || event.getRegainReason() == EntityRegainHealthEvent.RegainReason.REGEN) {
+            int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
+            long pauseMillis = combatPauseSeconds * 1000L;
+            Long lastCombat = lastCombatTime.get(player.getUniqueId());
+            if (lastCombat != null && System.currentTimeMillis() - lastCombat < pauseMillis) {
+                event.setCancelled(true);
             }
         }
     }
@@ -688,7 +667,6 @@ public class GameListener implements Listener {
             if (player.getInventory().getItemInMainHand().getType() == Material.FISHING_ROD) {
                 Location playerLoc = player.getLocation();
                 Location hookLoc = event.getHook().getLocation();
-                
                 Vector velocity = hookLoc.toVector().subtract(playerLoc.toVector());
                 player.setVelocity(velocity.multiply(0.25).setY(velocity.getY() * 0.15 + 0.5));
             }
@@ -698,100 +676,150 @@ public class GameListener implements Listener {
     @EventHandler
     public void onExplosion(EntityExplodeEvent event) {
         if (event.getEntity() instanceof Fireball || event.getEntity() instanceof TNTPrimed) {
-            // Cancel block damage but keep visual explosion
             event.blockList().clear();
         }
     }
 
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
         Player player = event.getPlayer();
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-
         ItemStack item = player.getInventory().getItemInMainHand();
-        if (item == null || item.getItemMeta() == null) return;
-        String name = item.getItemMeta().getDisplayName();
+        ShopOffer offer = offerOf(item);
+        if (offer == null || offer.permanent()) {
+            return;
+        }
+        switch (offer) {
+            case FIREBALL -> {
+                event.setCancelled(true);
+                Fireball fireball = player.launchProjectile(Fireball.class);
+                fireball.setIsIncendiary(false);
+                fireball.setYield(5F);
+                consumeItem(player);
+            }
+            case JUMP -> {
+                PotionEffectType jump = PotionEffects.jumpBoost();
+                if (jump != null) {
+                    player.addPotionEffect(new PotionEffect(jump, 200, 2));
+                }
+                Sounds.play(player, 1f, 1f, "ENTITY_BAT_TAKEOFF");
+                consumeItem(player);
+            }
+            case SPEED -> {
+                PotionEffectType speed = PotionEffects.speed();
+                if (speed != null) {
+                    player.addPotionEffect(new PotionEffect(speed, 100, 2));
+                }
+                Sounds.play(player, 1f, 1.5f, "ENTITY_WITCH_DRINK");
+                consumeItem(player);
+            }
+            case INVIS -> {
+                PotionEffectType invisibility = PotionEffects.invisibility();
+                if (invisibility != null) {
+                    player.addPotionEffect(new PotionEffect(invisibility, 300, 0));
+                }
+                Sounds.play(player, 1f, 1f, "ENTITY_SPLASH_POTION_BREAK");
+                consumeItem(player);
+            }
+            case TNT -> {
+                event.setCancelled(true);
+                TNTPrimed tnt = player.getWorld().spawn(player.getLocation().add(0, 1, 0), TNTPrimed.class);
+                tnt.setFuseTicks(20);
+                tnt.setVelocity(player.getLocation().getDirection().multiply(1.5));
+                consumeItem(player);
+            }
+            case PLATFORM -> {
+                event.setCancelled(true);
+                createTemporaryPlatform(player.getLocation().subtract(0, 1, 0));
+                consumeItem(player);
+            }
+            case VAMPIRE -> {
+                vampireFangActive.put(player.getUniqueId(), true);
+                player.sendMessage(TextLines.render(plugin, "vampire-ready", "&cYour next hit will heal you!", Map.of()));
+                Sounds.play(player, 1f, 0.5f, "ENTITY_BAT_AMBIENT");
+                consumeItem(player);
+            }
+            case TRACKER -> pointCompass(player);
+            case WEB -> {
+                event.setCancelled(true);
+                throwWeb(player);
+                consumeItem(player);
+            }
+            default -> {
+                // Grapple is handled by the fishing event. The rest are plain items.
+            }
+        }
+    }
 
-        if (name.equals(ChatColor.RED + "Knockback Fireball") && item.getType() == Material.FIRE_CHARGE) {
-            event.setCancelled(true);
-            Fireball fireball = player.launchProjectile(Fireball.class);
-            fireball.setIsIncendiary(false);
-            fireball.setYield(5F); // Increased visual explosion size
-            consumeItem(player);
+    private ShopOffer offerOf(ItemStack item) {
+        if (item == null) {
+            return null;
         }
-        else if (name.equals(ChatColor.YELLOW + "Jump Boost Feather") && item.getType() == Material.FEATHER) {
-            player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 200, 2)); // Jump III for 10s
-            player.playSound(player.getLocation(), Sound.ENTITY_BAT_TAKEOFF, 1f, 1f);
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.WHITE + "Speed Powder") && item.getType() == Material.SUGAR) {
-            player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 100, 2)); // Speed III for 5s
-            player.playSound(player.getLocation(), Sound.ENTITY_WITCH_DRINK, 1f, 1.5f);
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.DARK_GRAY + "Invisibility Cloak") && item.getType() == Material.GLASS) {
-            player.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 300, 0)); // Invis for 15s
-            player.playSound(player.getLocation(), Sound.ENTITY_SPLASH_POTION_BREAK, 1f, 1f);
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.RED + "Knockback TNT") && item.getType() == Material.TNT) {
-            event.setCancelled(true);
-            TNTPrimed tnt = player.getWorld().spawn(player.getLocation().add(0, 1, 0), TNTPrimed.class);
-            tnt.setFuseTicks(20);
-            tnt.setVelocity(player.getLocation().getDirection().multiply(1.5));
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.AQUA + "Rescue Platform") && item.getType() == Material.SLIME_BLOCK) {
-            event.setCancelled(true);
-            Location loc = player.getLocation().subtract(0, 1, 0);
-            createTemporaryPlatform(loc);
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.DARK_RED + "Vampire Fang") && item.getType() == Material.GHAST_TEAR) {
-            vampireFangActive.put(player.getUniqueId(), true);
-            player.sendMessage(ChatColor.RED + "Your next hit will heal you!");
-            player.playSound(player.getLocation(), Sound.ENTITY_BAT_AMBIENT, 1f, 0.5f);
-            consumeItem(player);
-        }
-        else if (name.equals(ChatColor.GREEN + "Player Tracker") && item.getType() == Material.COMPASS) {
-            Player nearest = null;
-            double nearestDist = Double.MAX_VALUE;
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                if (p.equals(player)) continue;
-                if (p.getWorld().equals(player.getWorld())) {
-                    double dist = p.getLocation().distanceSquared(player.getLocation());
-                    if (dist < nearestDist) {
-                        nearestDist = dist;
-                        nearest = p;
-                    }
-                }
-            }
-            if (nearest != null) {
-                player.setCompassTarget(nearest.getLocation());
-                player.sendMessage(ChatColor.GREEN + "Compass pointing to " + nearest.getName());
-            } else {
-                player.sendMessage(ChatColor.RED + "No players found.");
+        NamespacedKey key = ShopOffer.key(plugin);
+        for (ShopOffer offer : ShopOffer.values()) {
+            if (offer.matches(item, key)) {
+                return offer;
             }
         }
-        else if (name.equals(ChatColor.GRAY + "Web Grenade") && item.getType() == Material.COBWEB) {
-            event.setCancelled(true);
-            Item grenade = player.getWorld().dropItem(player.getEyeLocation(), new ItemStack(Material.COBWEB));
-            grenade.setVelocity(player.getLocation().getDirection().multiply(1.5));
-            
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (grenade.isOnGround() || grenade.isDead()) {
-                        Location loc = grenade.getLocation();
-                        grenade.remove();
-                        createTemporaryWebs(loc);
-                        cancel();
-                    }
-                }
-            }.runTaskTimer(plugin, 1L, 1L);
-            
-            consumeItem(player);
+        return null;
+    }
+
+    private void pointCompass(Player player) {
+        Player nearest = null;
+        double nearestDist = Double.MAX_VALUE;
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.equals(player) || !other.getWorld().equals(player.getWorld())) {
+                continue;
+            }
+            double dist = other.getLocation().distanceSquared(player.getLocation());
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = other;
+            }
         }
+        if (nearest != null) {
+            player.setCompassTarget(nearest.getLocation());
+            player.sendMessage(TextLines.render(plugin, "tracker-pointing", "&aCompass pointing to %player%",
+                    Map.of("player", nearest.getName())));
+        } else {
+            player.sendMessage(TextLines.render(plugin, "tracker-none", "&cNo players found.", Map.of()));
+        }
+    }
+
+    private void throwWeb(Player player) {
+        Item grenade = player.getWorld().dropItem(player.getEyeLocation(), new ItemStack(Material.COBWEB));
+        grenade.setVelocity(player.getLocation().getDirection().multiply(1.5));
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            return;
+        }
+        boolean[] done = {false};
+        ServerScheduler[] holder = new ServerScheduler[] {scheduler};
+        TaskHandle handle = new TaskHandle();
+        handle.cancellable = scheduler.runTimer(() -> {
+            if (done[0]) {
+                handle.cancellable.cancel();
+                return;
+            }
+            holder[0].runOnEntity(grenade, () -> {
+                handle.ticks++;
+                if (done[0] || (!grenade.isOnGround() && !grenade.isDead() && handle.ticks <= 100)) {
+                    return;
+                }
+                done[0] = true;
+                Location loc = grenade.getLocation();
+                grenade.remove();
+                createTemporaryWebs(loc);
+                handle.cancellable.cancel();
+            });
+        }, 1L, 1L);
+    }
+
+    private static final class TaskHandle {
+        private infinode.org.example.bFFA01.compat.TaskRunner.Cancellable cancellable = infinode.org.example.bFFA01.compat.TaskRunner.Cancellable.NONE;
+        private int ticks;
     }
 
     private void consumeItem(Player player) {
@@ -805,58 +833,62 @@ public class GameListener implements Listener {
 
     private void createTemporaryPlatform(Location center) {
         List<TrackedPlacement> created = new ArrayList<>();
-
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
-                Block b = center.clone().add(x, 0, z).getBlock();
-                if (b.getType() == Material.AIR) {
-                    BlockState replaced = b.getState();
-                    TrackedPlacement placement = TrackedPlacement.track(placedBlocks, b, replaced, Material.SLIME_BLOCK);
-                    b.setType(Material.SLIME_BLOCK);
-                    created.add(placement);
+                Block block = center.clone().add(x, 0, z).getBlock();
+                if (block.getType() == Material.AIR) {
+                    BlockState replaced = block.getState();
+                    synchronized (placedBlocks) {
+                        created.add(TrackedPlacement.track(placedBlocks, block, replaced, Material.SLIME_BLOCK));
+                    }
+                    block.setType(Material.SLIME_BLOCK);
                 }
             }
         }
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (TrackedPlacement placement : created) {
-                    if (placedBlocks.contains(placement) && placement.release()) {
-                        placedBlocks.removeAll(placement.members());
-                    }
-                }
-            }
-        }.runTaskLater(plugin, 100L); // 5 seconds
+        for (TrackedPlacement placement : created) {
+            scheduleAt(placement, this::releasePlacement, 100L);
+        }
     }
 
     private void createTemporaryWebs(Location center) {
         List<TrackedPlacement> created = new ArrayList<>();
-
         for (int x = -1; x <= 1; x++) {
             for (int y = 0; y <= 1; y++) {
                 for (int z = -1; z <= 1; z++) {
-                    if (Math.abs(x) == 1 && Math.abs(z) == 1) continue; // Make it a cross shape
-                    Block b = center.clone().add(x, y, z).getBlock();
-                    if (b.getType() == Material.AIR) {
-                        BlockState replaced = b.getState();
-                        TrackedPlacement placement = TrackedPlacement.track(placedBlocks, b, replaced, Material.COBWEB);
-                        b.setType(Material.COBWEB);
-                        created.add(placement);
+                    if (Math.abs(x) == 1 && Math.abs(z) == 1) {
+                        continue;
+                    }
+                    Block block = center.clone().add(x, y, z).getBlock();
+                    if (block.getType() == Material.AIR) {
+                        BlockState replaced = block.getState();
+                        synchronized (placedBlocks) {
+                            created.add(TrackedPlacement.track(placedBlocks, block, replaced, Material.COBWEB));
+                        }
+                        block.setType(Material.COBWEB);
                     }
                 }
             }
         }
+        for (TrackedPlacement placement : created) {
+            scheduleAt(placement, this::releasePlacement, 100L);
+        }
+    }
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (TrackedPlacement placement : created) {
-                    if (placedBlocks.contains(placement) && placement.release()) {
-                        placedBlocks.removeAll(placement.members());
-                    }
-                }
-            }
-        }.runTaskLater(plugin, 100L); // 5 seconds
+    private void onEntity(Player player, Runnable task) {
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            task.run();
+        } else {
+            scheduler.runOnEntity(player, task);
+        }
+    }
+
+    private void later(Player player, Runnable task, long delayTicks) {
+        ServerScheduler scheduler = plugin.scheduler();
+        if (scheduler == null) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, task, delayTicks);
+        } else {
+            scheduler.runOnEntityLater(player, task, delayTicks);
+        }
     }
 }

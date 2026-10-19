@@ -1,16 +1,18 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.storage.KillEntry;
+import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 public class HologramManager {
     private static final String HOLOGRAM_TAG = "bffa_hologram";
@@ -22,62 +24,57 @@ public class HologramManager {
         this.plugin = plugin;
     }
 
-    public void updateHologram(Location spawnLoc) {
-        // Remove old holograms across all worlds by UUID to ensure they are deleted even if unloaded
+    public void clear() {
         for (UUID uuid : hologramUUIDs) {
             Entity entity = Bukkit.getEntity(uuid);
             if (entity != null) {
                 entity.remove();
             }
         }
-        hologramsClearWorldSearch();
         hologramUUIDs.clear();
+        sweepTagged();
+    }
 
-        if (spawnLoc == null || spawnLoc.getWorld() == null) return;
-
-        // Calculate top 3
-        Map<String, Integer> playerKills = new HashMap<>();
-        ConfigurationSection config = plugin.getDataManager().getConfig();
-        for (String uuidStr : config.getKeys(false)) {
-            if (uuidStr.length() == 36) { // It's a UUID
-                int kills = config.getInt(uuidStr + ".kills", 0);
-                String name = Bukkit.getOfflinePlayer(UUID.fromString(uuidStr)).getName();
-                if (name == null) name = "Unknown";
-                playerKills.put(name, kills);
-            }
+    public void updateHologram(Location spawnLoc) {
+        clear();
+        if (!plugin.getConfig().getBoolean("holograms.enabled", false)) {
+            return;
+        }
+        if (spawnLoc == null || spawnLoc.getWorld() == null) {
+            return;
         }
 
-        List<Map.Entry<String, Integer>> top = playerKills.entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(3)
-                .collect(Collectors.toList());
+        List<KillEntry> top = plugin.getDataManager().topKills(3);
+        Location loc = spawnLoc.clone().add(0, 3.5, 0);
 
-        Location loc = spawnLoc.clone().add(0, 3.5, 0); // Above spawn
-
-        spawnLine(loc, ChatColor.AQUA + ChatColor.BOLD.toString() + "Top Kills");
+        spawnLine(loc, TextLines.render(plugin, "hologram-title", "&b&lTop Kills", Map.of()));
         loc.subtract(0, 0.3, 0);
 
         int rank = 1;
-        for (Map.Entry<String, Integer> entry : top) {
-            spawnLine(loc, ChatColor.YELLOW + "#" + rank + " " + ChatColor.GRAY + entry.getKey() + ": " + ChatColor.AQUA + entry.getValue());
+        for (KillEntry entry : top) {
+            String name = entry.name() == null || entry.name().isBlank() ? "Unknown" : entry.name();
+            spawnLine(loc, TextLines.render(plugin, "hologram-line", "&e#%rank% &7%player%: &b%kills%",
+                    Map.of("rank", Integer.toString(rank), "player", name, "kills", Integer.toString(entry.kills()))));
             loc.subtract(0, 0.3, 0);
             rank++;
         }
-        
+
         if (top.isEmpty()) {
-            spawnLine(loc, ChatColor.GRAY + "No stats yet!");
+            spawnLine(loc, TextLines.render(plugin, "hologram-empty", "&7No stats yet!", Map.of()));
         }
     }
 
-    private void hologramsClearWorldSearch() {
-        // Only remove armor stands this plugin tagged. Name matching is not
-        // used: a "#" or "Top Kills" substring would delete other plugins' holograms.
-        for (org.bukkit.World world : Bukkit.getWorlds()) {
-            for (Entity entity : world.getEntities()) {
-                if (entity.getType() == EntityType.ARMOR_STAND && entity.getScoreboardTags().contains(HOLOGRAM_TAG)) {
-                    entity.remove();
+    private void sweepTagged() {
+        try {
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (Entity entity : world.getEntities()) {
+                    if (entity.getType() == EntityType.ARMOR_STAND && entity.getScoreboardTags().contains(HOLOGRAM_TAG)) {
+                        entity.remove();
+                    }
                 }
             }
+        } catch (Throwable ex) {
+            plugin.getLogger().warning("Could not sweep leftover holograms: " + ex.getMessage());
         }
     }
 
