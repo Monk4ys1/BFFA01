@@ -28,7 +28,10 @@ import infinode.org.example.bFFA01.hooks.vault.VaultBridge;
 import infinode.org.example.bFFA01.hooks.via.ViaPlayers;
 import infinode.org.example.bFFA01.hooks.worldguard.WorldGuardFlags;
 import infinode.org.example.bFFA01.hooks.worldguard.WorldGuardRegions;
+import infinode.org.example.bFFA01.combat.CombatTracker;
+import infinode.org.example.bFFA01.combat.DamageFeedback;
 import infinode.org.example.bFFA01.listeners.GameListener;
+import infinode.org.example.bFFA01.network.NetworkLink;
 import infinode.org.example.bFFA01.listeners.IntegrationListener;
 import infinode.org.example.bFFA01.listeners.ShopListener;
 import infinode.org.example.bFFA01.ui.Presentation;
@@ -66,13 +69,13 @@ public final class BFFA01 extends JavaPlugin {
     private HologramManager hologramManager;
     private GameListener gameListener;
     private Presentation presentation;
+    private CombatTracker combat;
+    private DamageFeedback damageFeedback;
+    private NetworkLink network;
     private BstatsMetrics metrics;
 
     @Override
     public void onLoad() {
-        BrigadierHook.install(this, Map.of(
-                "bffa", List.of("setmap", "swapmap", "addcoins", "removecoins", "resetstats", "reload")
-        ));
         WorldGuardFlags.register(this, getLogger());
     }
 
@@ -112,6 +115,9 @@ public final class BFFA01 extends JavaPlugin {
 
         dataManager = new DataManager(this);
         dataManager.useRunner(scheduler);
+        combat = new CombatTracker();
+        damageFeedback = new DamageFeedback(this);
+        network = new NetworkLink(this);
         killstreakManager = new KillstreakManager(this);
         kitManager = new KitManager(this);
         gameListener = new GameListener(this);
@@ -146,6 +152,12 @@ public final class BFFA01 extends JavaPlugin {
             getLogger().warning("Could not publish the BuildFFA service: " + ex.getMessage());
         }
         metrics.start();
+        if (network != null) {
+            network.start();
+        }
+        BrigadierHook.install(this, Map.of(
+                "bffa", List.of("setmap", "swapmap", "addcoins", "removecoins", "resetstats", "reload", "network")
+        ));
         String active = integrations.activeIds().isEmpty() ? "none" : String.join(", ", integrations.activeIds());
         getLogger().info("Active integrations: " + active);
     }
@@ -153,6 +165,12 @@ public final class BFFA01 extends JavaPlugin {
     @Override
     public void onDisable() {
         try {
+            if (damageFeedback != null) {
+                damageFeedback.clear();
+            }
+            if (network != null) {
+                network.stop();
+            }
             if (scheduler != null) {
                 scheduler.cancelAll();
             }
@@ -189,6 +207,12 @@ public final class BFFA01 extends JavaPlugin {
         messages = Messages.load(getDataFolder().toPath(), getConfig().getString("language", "en"), getConfig());
         if (presentation != null) {
             presentation.reload();
+        }
+        if (damageFeedback != null) {
+            damageFeedback.reload();
+        }
+        if (network != null) {
+            network.reload();
         }
         if (scoreboardManager != null) {
             scoreboardManager.reloadConfig();
@@ -247,4 +271,7 @@ public final class BFFA01 extends JavaPlugin {
     public IntegrationBus integrations() { return integrations; }
     public ServerRuntime runtime() { return runtime; }
     public Presentation presentation() { return presentation; }
+    public CombatTracker combat() { return combat; }
+    public DamageFeedback damageFeedback() { return damageFeedback; }
+    public NetworkLink network() { return network; }
 }

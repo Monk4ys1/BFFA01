@@ -22,9 +22,10 @@ import java.util.regex.Pattern;
 public final class MiniPlaceholderBridge {
 
     private static final String[] AUDIENCE = {
-            "kills", "deaths", "kd", "coins", "streak", "rank", "prefix", "bedrock", "protocol", "client", "vault"
+            "kills", "deaths", "kd", "coins", "streak", "rank", "prefix", "bedrock", "protocol", "client", "vault",
+            "damage", "damage_taken", "life_damage", "life_taken", "assists"
     };
-    private static final String[] GLOBAL = {"map", "kit", "online", "top_name", "top_kills", "top_kd"};
+    private static final String[] GLOBAL = {"map", "kit", "online", "top_name", "top_kills", "top_kd", "top_damage", "top_damage_name"};
 
     private static final Pattern TAG = Pattern.compile("<([A-Za-z][A-Za-z0-9_]*)(?::([^>]*))?>");
     private static final Set<String> FORMAT = Set.of(

@@ -6,11 +6,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * Display choices live outside the stats database so cosmetics do not need a schema change.
@@ -23,6 +23,8 @@ public final class PlayerPreferences {
     private final Object io = new Object();
     private volatile boolean writable = true;
     private volatile Executor writer = Runnable::run;
+    private volatile Consumer<UUID> changed = id -> {
+    };
     private long generation;
 
     public PlayerPreferences(File file) {
@@ -57,6 +59,7 @@ public final class PlayerPreferences {
                 pref.scoreboard = section.getBoolean(key + ".scoreboard", true);
                 pref.bossbar = section.getBoolean(key + ".bossbar", true);
                 pref.actionbar = section.getBoolean(key + ".actionbar", true);
+                pref.damage = section.getBoolean(key + ".damage", true);
                 pref.effect = effect(section.getString(key + ".effect", "totem"));
                 pref.welcomed = section.getBoolean(key + ".welcomed", false);
                 prefs.put(id, pref);
@@ -78,6 +81,10 @@ public final class PlayerPreferences {
         return pref(id).actionbar;
     }
 
+    public boolean damage(UUID id) {
+        return pref(id).damage;
+    }
+
     public String effect(UUID id) {
         return pref(id).effect;
     }
@@ -88,26 +95,56 @@ public final class PlayerPreferences {
 
     public void scoreboard(UUID id, boolean enabled) {
         pref(id).scoreboard = enabled;
-        save();
+        touch(id);
     }
 
     public void bossbar(UUID id, boolean enabled) {
         pref(id).bossbar = enabled;
-        save();
+        touch(id);
     }
 
     public void actionbar(UUID id, boolean enabled) {
         pref(id).actionbar = enabled;
-        save();
+        touch(id);
+    }
+
+    public void damage(UUID id, boolean enabled) {
+        pref(id).damage = enabled;
+        touch(id);
     }
 
     public void effect(UUID id, String effect) {
         pref(id).effect = effect(effect);
-        save();
+        touch(id);
     }
 
     public void welcomed(UUID id, boolean welcomed) {
         pref(id).welcomed = welcomed;
+        touch(id);
+    }
+
+    public void onChanged(Consumer<UUID> listener) {
+        changed = listener == null ? id -> {
+        } : listener;
+    }
+
+    public String export(UUID id) {
+        Pref pref = pref(id);
+        return PrefCodec.encode(new PrefCodec.Values(pref.scoreboard, pref.bossbar, pref.actionbar, pref.damage, pref.effect, pref.welcomed));
+    }
+
+    public void applyStored(UUID id, String raw) {
+        PrefCodec.Values values = PrefCodec.decode(raw);
+        if (id == null || values == null) {
+            return;
+        }
+        Pref pref = pref(id);
+        pref.scoreboard = values.scoreboard();
+        pref.bossbar = values.bossbar();
+        pref.actionbar = values.actionbar();
+        pref.damage = values.damage();
+        pref.effect = values.effect();
+        pref.welcomed = values.welcomed();
         save();
     }
 
@@ -120,6 +157,13 @@ public final class PlayerPreferences {
             return new Pref();
         }
         return prefs.computeIfAbsent(id, ignored -> new Pref());
+    }
+
+    private void touch(UUID id) {
+        save();
+        if (id != null) {
+            changed.accept(id);
+        }
     }
 
     private void save() {
@@ -143,6 +187,7 @@ public final class PlayerPreferences {
             yaml.set(path + ".scoreboard", pref.scoreboard);
             yaml.set(path + ".bossbar", pref.bossbar);
             yaml.set(path + ".actionbar", pref.actionbar);
+            yaml.set(path + ".damage", pref.damage);
             yaml.set(path + ".effect", pref.effect);
             yaml.set(path + ".welcomed", pref.welcomed);
         }
@@ -167,20 +212,15 @@ public final class PlayerPreferences {
     }
 
     private static String effect(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "totem";
-        }
-        String value = raw.trim().toLowerCase(Locale.ROOT);
-        if (!value.matches("[a-z0-9_-]{1,24}")) {
-            return "totem";
-        }
-        return value;
+        String value = PrefCodec.effect(raw);
+        return value == null ? "totem" : value;
     }
 
     private static final class Pref {
         private boolean scoreboard = true;
         private boolean bossbar = true;
         private boolean actionbar = true;
+        private boolean damage = true;
         private String effect = "totem";
         private boolean welcomed;
     }

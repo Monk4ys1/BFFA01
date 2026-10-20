@@ -35,7 +35,14 @@ public final class BffaTokens {
             "%bffa_rank_<name>%",
             "%bffa_top_name_<n>%",
             "%bffa_top_kills_<n>%",
-            "%bffa_top_kd_<n>%"
+            "%bffa_top_kd_<n>%",
+            "%bffa_damage%",
+            "%bffa_damage_taken%",
+            "%bffa_life_damage%",
+            "%bffa_life_taken%",
+            "%bffa_assists%",
+            "%bffa_top_damage_<n>%",
+            "%bffa_top_damage_name_<n>%"
     );
 
     private static final Pattern PERCENT = Pattern.compile("%bffa_([^%\\s]+)%", Pattern.CASE_INSENSITIVE);
@@ -87,6 +94,10 @@ public final class BffaTokens {
     }
 
     private static String value(StatSource source, UUID viewer, String params) {
+        String compound = compound(source, viewer, params);
+        if (compound != null) {
+            return compound;
+        }
         int split = params.indexOf('_');
         String head = (split < 0 ? params : params.substring(0, split)).toLowerCase(Locale.ROOT);
         String rest = split < 0 ? null : params.substring(split + 1);
@@ -109,11 +120,40 @@ public final class BffaTokens {
             case "protocol" -> protocol(source, id);
             case "client" -> id == null ? "" : plain(source.client(id));
             case "vault" -> id == null ? "" : safe(source.vault(id));
+            case "damage" -> id == null ? "0" : source.damage(id);
+            case "assists" -> Integer.toString(id == null ? 0 : source.assists(id));
             case "map" -> plain(source.map());
             case "kit" -> plain(source.kit());
             case "online", "players" -> Integer.toString(Math.max(0, source.online()));
             default -> null;
         };
+    }
+
+    private static String compound(StatSource source, UUID viewer, String params) {
+        String lower = params.toLowerCase(Locale.ROOT);
+        if (lower.equals("damage_taken") || lower.startsWith("damage_taken_")) {
+            UUID id = named(source, viewer, params, "damage_taken");
+            return id == null ? "0" : source.damageTaken(id);
+        }
+        if (lower.equals("life_damage") || lower.startsWith("life_damage_")) {
+            UUID id = named(source, viewer, params, "life_damage");
+            return id == null ? "0" : source.lifeDamage(id);
+        }
+        if (lower.equals("life_taken") || lower.startsWith("life_taken_")) {
+            UUID id = named(source, viewer, params, "life_taken");
+            return id == null ? "0" : source.lifeTaken(id);
+        }
+        return null;
+    }
+
+    private static UUID named(StatSource source, UUID viewer, String params, String prefix) {
+        if (params.equalsIgnoreCase(prefix)) {
+            return viewer;
+        }
+        if (params.length() <= prefix.length() + 1) {
+            return null;
+        }
+        return source.find(params.substring(prefix.length() + 1));
     }
 
     private static boolean isGlobal(String head) {
@@ -142,6 +182,8 @@ public final class BffaTokens {
             case "name" -> plain(source.topName(rank));
             case "kills" -> Integer.toString(source.topKills(rank));
             case "kd" -> safe(source.topKd(rank));
+            case "damage" -> safe(source.topDamage(rank));
+            case "damage_name" -> plain(source.topDamageName(rank));
             default -> null;
         };
     }

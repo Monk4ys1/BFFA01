@@ -1,6 +1,8 @@
 package infinode.org.example.bFFA01.hooks.papi;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.combat.DamageMath;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.hooks.IntegrationSettings;
 import infinode.org.example.bFFA01.hooks.bedrock.BedrockPlayers;
 import infinode.org.example.bFFA01.hooks.luck.Prefixes;
@@ -51,11 +53,54 @@ public final class PluginStatSource implements StatSource {
 
     @Override
     public int streak(UUID id) {
-        if (id == null || plugin.getKillstreakManager() == null) {
+        if (id == null) {
             return 0;
         }
-        Player player = Bukkit.getPlayer(id);
-        return player == null ? 0 : plugin.getKillstreakManager().getStreak(player);
+        Player player = player(id);
+        if (player != null && plugin.getKillstreakManager() != null) {
+            return plugin.getKillstreakManager().getStreak(player);
+        }
+        return plugin.getDataManager() == null ? 0 : plugin.getDataManager().streak(id);
+    }
+
+    @Override
+    public String damage(UUID id) {
+        return hearts(id == null || plugin.getDataManager() == null ? 0 : plugin.getDataManager().damageDealt(id));
+    }
+
+    @Override
+    public String damageTaken(UUID id) {
+        return hearts(id == null || plugin.getDataManager() == null ? 0 : plugin.getDataManager().damageTaken(id));
+    }
+
+    @Override
+    public String lifeDamage(UUID id) {
+        return hearts(id == null || plugin.getDataManager() == null ? 0 : plugin.getDataManager().lifeDealt(id));
+    }
+
+    @Override
+    public String lifeTaken(UUID id) {
+        return hearts(id == null || plugin.getDataManager() == null ? 0 : plugin.getDataManager().lifeTaken(id));
+    }
+
+    @Override
+    public int assists(UUID id) {
+        if (id == null || plugin.getDataManager() == null) {
+            return 0;
+        }
+        return plugin.getDataManager().assists(id);
+    }
+
+    @Override
+    public String topDamage(int rank) {
+        DamageEntry entry = damageAt(rank);
+        return entry == null ? "" : DamageMath.format(entry.hundredths());
+    }
+
+    @Override
+    public String topDamageName(int rank) {
+        DamageEntry entry = damageAt(rank);
+        return entry == null || entry.name() == null ? "" : entry.name();
     }
 
     @Override
@@ -177,6 +222,21 @@ public final class PluginStatSource implements StatSource {
         int deaths = deaths(entry.id());
         double ratio = deaths == 0 ? entry.kills() : (double) entry.kills() / deaths;
         return String.format(Locale.US, "%.2f", ratio);
+    }
+
+    private static String hearts(long hundredths) {
+        return DamageMath.format(hundredths);
+    }
+
+    private DamageEntry damageAt(int rank) {
+        if (plugin.getDataManager() == null) {
+            return null;
+        }
+        List<DamageEntry> board = plugin.getDataManager().topDamage(100);
+        if (rank < 1 || rank > board.size()) {
+            return null;
+        }
+        return board.get(rank - 1);
     }
 
     private KillEntry at(int rank) {

@@ -139,6 +139,7 @@ public final class ThemeText {
         icons.put("stats", "\u265b");
         icons.put("settings", "\u2699");
         icons.put("vote", "\u25b2");
+        icons.put("hit", "\u2738");
         return Collections.unmodifiableMap(icons);
     }
 }

@@ -115,6 +115,8 @@ public final class Menus {
             case "toggle:scoreboard" -> toggleScoreboard(player);
             case "toggle:bossbar" -> toggleBossbar(player);
             case "toggle:actionbar" -> toggleActionbar(player);
+            case "toggle:damage" -> toggleDamage(player);
+            case "page:damage" -> open(player, "stats", model.firstDamagePage(), "", null, -1, true);
             case "cycle:effect" -> cycleEffect(player);
             default -> dynamic(player, id, page, arg, action);
         }
@@ -241,6 +243,12 @@ public final class Menus {
 
     private void toggleActionbar(Player player) {
         ui.preferences().actionbar(player.getUniqueId(), !ui.preferences().actionbar(player.getUniqueId()));
+        ui.sound(player, "click");
+        open(player, "settings", 0, "", null, -1, false);
+    }
+
+    private void toggleDamage(Player player) {
+        ui.preferences().damage(player.getUniqueId(), !ui.preferences().damage(player.getUniqueId()));
         ui.sound(player, "click");
         open(player, "settings", 0, "", null, -1, false);
     }

@@ -16,7 +16,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,6 +31,7 @@ final class JdbcPlayerData implements PlayerData {
     private final BFFA01 plugin;
     private final JdbcPlayerRepository repository;
     private final ConcurrentHashMap<UUID, PlayerRecord> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Integer> dirtyGen = new ConcurrentHashMap<>();
     private final DirtySaveGate gate = new DirtySaveGate();
     private final Object writeLock = new Object();
     private TaskRunner runner;
@@ -39,6 +43,7 @@ final class JdbcPlayerData implements PlayerData {
     JdbcPlayerData(BFFA01 plugin, StorageSettings settings) throws SQLException {
         this.plugin = plugin;
         this.repository = JdbcPlayerRepository.open(settings, plugin.getDataFolder().toPath());
+        this.repository.lease(infinode.org.example.bFFA01.network.ServerIds.current(plugin), 30_000L);
         for (PlayerRecord record : repository.loadAll()) {
             cache.put(record.id(), record);
         }
@@ -64,6 +69,10 @@ final class JdbcPlayerData implements PlayerData {
             config.set(id + ".kills", copy.kills());
             config.set(id + ".deaths", copy.deaths());
             config.set(id + ".coins", copy.coins());
+            config.set(id + ".assists", copy.assists());
+            config.set(id + ".streak", copy.streak());
+            config.set(id + ".damage-dealt", copy.damageDealt());
+            config.set(id + ".damage-taken", copy.damageTaken());
             config.set(id + ".upgrades", new ArrayList<>(copy.upgrades()));
             for (int slot = 0; slot < 9; slot++) {
                 String material = copy.layout(slot);
@@ -93,7 +102,7 @@ final class JdbcPlayerData implements PlayerData {
             return;
         }
         record(uuid).addKill();
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
     }
 
     @Override
@@ -108,7 +117,7 @@ final class JdbcPlayerData implements PlayerData {
             return;
         }
         record(uuid).addDeath();
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
     }
 
     @Override
@@ -122,7 +131,7 @@ final class JdbcPlayerData implements PlayerData {
         if (uuid == null || !record(uuid).addCoins(amount)) {
             return false;
         }
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
         return true;
     }
 
@@ -131,7 +140,7 @@ final class JdbcPlayerData implements PlayerData {
         if (uuid == null || !record(uuid).removeCoins(amount)) {
             return false;
         }
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
         return true;
     }
 
@@ -141,7 +150,7 @@ final class JdbcPlayerData implements PlayerData {
             return false;
         }
         record(uuid).resetStats();
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
         return true;
     }
 
@@ -162,7 +171,7 @@ final class JdbcPlayerData implements PlayerData {
         }
         record.addUpgrade(upgrade);
         if (record.hasUpgrade(upgrade)) {
-            requestSave(DataManager.SAVE_DELAY_TICKS);
+            touch(uuid);
         }
     }
 
@@ -184,7 +193,7 @@ final class JdbcPlayerData implements PlayerData {
         for (int slot = slots; slot < 9; slot++) {
             record.layout(slot, "AIR");
         }
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
         return true;
     }
 
@@ -205,11 +214,16 @@ final class JdbcPlayerData implements PlayerData {
             return;
         }
         record.name(safe);
-        requestSave(DataManager.SAVE_DELAY_TICKS);
+        touch(uuid);
     }
 
     @Override
     public List<KillEntry> topKills(int limit) {
+        try {
+            return repository.topKills(limit);
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not read the kill leaderboard: " + ex.getMessage());
+        }
         List<KillEntry> entries = new ArrayList<>();
         for (PlayerRecord record : cache.values()) {
             PlayerRecord copy = record.copy();
@@ -224,6 +238,170 @@ final class JdbcPlayerData implements PlayerData {
             return List.copyOf(entries.subList(0, limit));
         }
         return List.copyOf(entries);
+    }
+
+    @Override
+    public long damageDealt(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0L : record.damageDealt();
+    }
+
+    @Override
+    public long damageTaken(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0L : record.damageTaken();
+    }
+
+    @Override
+    public long lifeDealt(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0L : record.lifeDealt();
+    }
+
+    @Override
+    public long lifeTaken(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0L : record.lifeTaken();
+    }
+
+    @Override
+    public int assists(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0 : record.assists();
+    }
+
+    @Override
+    public int streak(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? 0 : record.streak();
+    }
+
+    @Override
+    public void setStreak(UUID uuid, int streak) {
+        if (uuid == null) {
+            return;
+        }
+        record(uuid).streak(streak);
+        touch(uuid);
+    }
+
+    @Override
+    public void addCombatDamage(UUID attacker, UUID victim, long hundredths) {
+        if (hundredths <= 0) {
+            return;
+        }
+        if (attacker != null) {
+            record(attacker).addDealt(hundredths);
+            touch(attacker);
+        }
+        if (victim != null) {
+            record(victim).addTaken(hundredths);
+            touch(victim);
+        }
+    }
+
+    @Override
+    public void addAssist(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+        record(uuid).addAssist();
+        touch(uuid);
+    }
+
+    @Override
+    public void resetLife(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+        record(uuid).resetLife();
+        touch(uuid);
+    }
+
+    @Override
+    public List<infinode.org.example.bFFA01.storage.DamageEntry> topDamage(int limit) {
+        try {
+            return repository.topDamage(limit);
+        } catch (SQLException ex) {
+            return List.of();
+        }
+    }
+
+    @Override
+    public void refresh(UUID uuid) {
+        if (uuid == null || closed) {
+            return;
+        }
+        try {
+            PlayerRecord loaded = repository.loadOne(uuid);
+            if (loaded != null) {
+                cache.put(uuid, loaded);
+                dirtyGen.remove(uuid);
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not refresh " + uuid + ": " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public void handoff(UUID uuid) {
+        if (uuid == null || closed) {
+            return;
+        }
+        PlayerRecord record = cache.get(uuid);
+        pending.cancel();
+        pending = TaskRunner.Cancellable.NONE;
+        synchronized (writeLock) {
+            try {
+                if (record != null) {
+                    repository.saveAll(List.of(record.copy()));
+                }
+                repository.release(uuid);
+                dirtyGen.remove(uuid);
+            } catch (SQLException ex) {
+                plugin.getLogger().warning("Could not hand off " + uuid + ": " + ex.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public String storedPrefs(UUID uuid) {
+        PlayerRecord record = cache.get(uuid);
+        return record == null ? "" : record.prefs();
+    }
+
+    @Override
+    public void storedPrefs(UUID uuid, String prefs) {
+        if (uuid == null) {
+            return;
+        }
+        PlayerRecord record = record(uuid);
+        String next = prefs == null ? "" : prefs;
+        if (next.equals(record.prefs())) {
+            return;
+        }
+        record.prefs(next);
+        touch(uuid);
+    }
+
+    @Override
+    public void pullRemote(Set<UUID> online) {
+        if (closed) {
+            return;
+        }
+        try {
+            for (PlayerRecord loaded : repository.loadAll()) {
+                if (online != null && online.contains(loaded.id())) {
+                    continue;
+                }
+                if (dirtyGen.containsKey(loaded.id())) {
+                    continue;
+                }
+                cache.put(loaded.id(), loaded);
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not refresh shared stats: " + ex.getMessage());
+        }
     }
 
     @Override
@@ -249,7 +427,7 @@ final class JdbcPlayerData implements PlayerData {
         pending.cancel();
         pending = TaskRunner.Cancellable.NONE;
         gate.clear();
-        List<PlayerRecord> snapshot = snapshot();
+        List<PlayerRecord> snapshot = snapshot(new HashMap<>());
         synchronized (writeLock) {
             latestGeneration++;
             try {
@@ -283,24 +461,48 @@ final class JdbcPlayerData implements PlayerData {
         if (closed || !gate.takeSnapshotRequest()) {
             return;
         }
-        final List<PlayerRecord> snapshot = snapshot();
+        final Map<UUID, Integer> generations = new HashMap<>();
+        final List<PlayerRecord> snapshot = snapshot(generations);
         final long generation;
         synchronized (writeLock) {
             generation = ++latestGeneration;
         }
-        tasks().runAsync(() -> writeAsync(generation, snapshot));
+        tasks().runAsync(() -> writeAsync(generation, snapshot, generations));
+    }
+
+    private void touch(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+        dirtyGen.merge(uuid, 1, Integer::sum);
+        requestSave(DataManager.SAVE_DELAY_TICKS);
     }
 
     private List<PlayerRecord> snapshot() {
-        Collection<PlayerRecord> values = cache.values();
-        List<PlayerRecord> copies = new ArrayList<>(values.size());
-        for (PlayerRecord record : values) {
+        return snapshot(null);
+    }
+
+    private List<PlayerRecord> snapshot(Map<UUID, Integer> generations) {
+        List<PlayerRecord> copies = new ArrayList<>();
+        for (Map.Entry<UUID, Integer> entry : dirtyGen.entrySet()) {
+            PlayerRecord record = cache.get(entry.getKey());
+            if (record == null) {
+                continue;
+            }
+            if (generations != null) {
+                generations.put(entry.getKey(), entry.getValue());
+            }
             copies.add(record.copy());
+        }
+        if (copies.isEmpty() && generations == null) {
+            for (PlayerRecord record : cache.values()) {
+                copies.add(record.copy());
+            }
         }
         return copies;
     }
 
-    private void writeAsync(long generation, List<PlayerRecord> snapshot) {
+    private void writeAsync(long generation, List<PlayerRecord> snapshot, Map<UUID, Integer> generations) {
         SQLException error = null;
         boolean retry = false;
         long retryDelay = DataManager.SAVE_DELAY_TICKS;
@@ -310,6 +512,11 @@ final class JdbcPlayerData implements PlayerData {
             }
             try {
                 repository.saveAll(snapshot);
+                if (generations != null) {
+                    for (Map.Entry<UUID, Integer> entry : generations.entrySet()) {
+                        dirtyGen.remove(entry.getKey(), entry.getValue());
+                    }
+                }
                 consecutiveFailures = 0;
             } catch (SQLException ex) {
                 error = ex;

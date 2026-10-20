@@ -27,6 +27,11 @@ class BffaTokensTest {
         assertEquals("9", BffaTokens.resolve(source, null, "top_kills_1"));
         assertEquals("9.00", BffaTokens.resolve(source, null, "top_kd_1"));
         assertEquals("", BffaTokens.resolve(source, null, "top_name_50"));
+        assertEquals("12.5", BffaTokens.resolve(source, VIEWER, "damage"));
+        assertEquals("3", BffaTokens.resolve(source, VIEWER, "damage_taken"));
+        assertEquals("1", BffaTokens.resolve(source, VIEWER, "assists"));
+        assertEquals("9.5", BffaTokens.resolve(source, null, "top_damage_1"));
+        assertEquals("Notch", BffaTokens.resolve(source, null, "top_damage_name_1"));
     }
 
     @Test
@@ -55,6 +60,11 @@ class BffaTokensTest {
         source.topName = "Notch";
         source.topKills = 9;
         source.topKd = "9.00";
+        source.damage.put(VIEWER, "12.5");
+        source.taken.put(VIEWER, "3");
+        source.assists.put(VIEWER, 1);
+        source.topDamage = "9.5";
+        source.topDamageName = "Notch";
         source.map = "arena";
         source.kit = "default";
         source.online = 3;
@@ -70,6 +80,11 @@ class BffaTokensTest {
         private String topName = "";
         private int topKills;
         private String topKd = "";
+        private final java.util.Map<UUID, String> damage = new java.util.HashMap<>();
+        private final java.util.Map<UUID, String> taken = new java.util.HashMap<>();
+        private final java.util.Map<UUID, Integer> assists = new java.util.HashMap<>();
+        private String topDamage = "";
+        private String topDamageName = "";
         private int online;
 
         @Override
@@ -155,6 +170,31 @@ class BffaTokensTest {
         @Override
         public String topKd(int rank) {
             return rank == 1 ? topKd : "";
+        }
+
+        @Override
+        public String damage(UUID id) {
+            return damage.getOrDefault(id, "0");
+        }
+
+        @Override
+        public String damageTaken(UUID id) {
+            return taken.getOrDefault(id, "0");
+        }
+
+        @Override
+        public int assists(UUID id) {
+            return assists.getOrDefault(id, 0);
+        }
+
+        @Override
+        public String topDamage(int rank) {
+            return rank == 1 ? topDamage : "";
+        }
+
+        @Override
+        public String topDamageName(int rank) {
+            return rank == 1 ? topDamageName : "";
         }
     }
 }

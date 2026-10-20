@@ -2,6 +2,7 @@ package infinode.org.example.bFFA01.hooks;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.api.BuildFFA;
+import infinode.org.example.bFFA01.combat.DamageMath;
 import infinode.org.example.bFFA01.hooks.bedrock.BedrockPlayers;
 import infinode.org.example.bFFA01.hooks.luck.Prefixes;
 import infinode.org.example.bFFA01.hooks.papi.PluginStatSource;
@@ -69,6 +70,30 @@ public final class LiveBuildFFA implements BuildFFA {
     @Override
     public int streak(UUID player) {
         return stats.streak(player);
+    }
+
+    @Override
+    public double damageDealt(UUID player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return 0;
+        }
+        return DamageMath.hearts(plugin.getDataManager().damageDealt(player));
+    }
+
+    @Override
+    public double damageTaken(UUID player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return 0;
+        }
+        return DamageMath.hearts(plugin.getDataManager().damageTaken(player));
+    }
+
+    @Override
+    public int assists(UUID player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return 0;
+        }
+        return plugin.getDataManager().assists(player);
     }
 
     @Override

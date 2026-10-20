@@ -167,16 +167,21 @@ public class ScoreboardManager {
         } catch (Throwable ignored) {
             online = 0;
         }
-        return java.util.Map.of(
-                "kills", Integer.toString(kills),
-                "deaths", Integer.toString(deaths),
-                "kd", String.format(java.util.Locale.US, "%.2f", kd),
-                "streak", Integer.toString(streak),
-                "coins", coins,
-                "players", Integer.toString(online),
-                "time", ClockText.mmss(seconds),
-                "map", currentMap
-        );
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        values.put("kills", Integer.toString(kills));
+        values.put("deaths", Integer.toString(deaths));
+        values.put("kd", String.format(java.util.Locale.US, "%.2f", kd));
+        values.put("streak", Integer.toString(streak));
+        values.put("coins", coins);
+        values.put("players", Integer.toString(online));
+        values.put("time", ClockText.mmss(seconds));
+        values.put("map", currentMap);
+        if (plugin.getDataManager() != null) {
+            values.put("damage", infinode.org.example.bFFA01.combat.DamageMath.format(plugin.getDataManager().damageDealt(player.getUniqueId())));
+            values.put("damage_taken", infinode.org.example.bFFA01.combat.DamageMath.format(plugin.getDataManager().damageTaken(player.getUniqueId())));
+            values.put("assists", Integer.toString(plugin.getDataManager().assists(player.getUniqueId())));
+        }
+        return values;
     }
 
     private void startUpdateTask() {

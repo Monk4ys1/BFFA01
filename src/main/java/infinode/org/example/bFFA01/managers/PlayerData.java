@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.compat.TaskRunner;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -45,6 +46,38 @@ interface PlayerData {
     void rememberName(UUID uuid, String name);
 
     List<KillEntry> topKills(int limit);
+
+    long damageDealt(UUID uuid);
+
+    long damageTaken(UUID uuid);
+
+    long lifeDealt(UUID uuid);
+
+    long lifeTaken(UUID uuid);
+
+    int assists(UUID uuid);
+
+    int streak(UUID uuid);
+
+    void setStreak(UUID uuid, int streak);
+
+    void addCombatDamage(UUID attacker, UUID victim, long hundredths);
+
+    void addAssist(UUID uuid);
+
+    void resetLife(UUID uuid);
+
+    List<DamageEntry> topDamage(int limit);
+
+    void refresh(UUID uuid);
+
+    void handoff(UUID uuid);
+
+    String storedPrefs(UUID uuid);
+
+    void storedPrefs(UUID uuid, String prefs);
+
+    void pullRemote(java.util.Set<UUID> online);
 
     void flush();
 

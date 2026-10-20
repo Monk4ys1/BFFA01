@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.BukkitRunners;
 import infinode.org.example.bFFA01.compat.TaskRunner;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -159,6 +160,12 @@ final class YamlPlayerData implements PlayerData {
         }
         store.configuration().set(uuid + ".kills", 0);
         store.configuration().set(uuid + ".deaths", 0);
+        store.configuration().set(uuid + ".assists", 0);
+        store.configuration().set(uuid + ".streak", 0);
+        store.configuration().set(uuid + ".damage-dealt", 0L);
+        store.configuration().set(uuid + ".damage-taken", 0L);
+        store.configuration().set(uuid + ".life-dealt", 0L);
+        store.configuration().set(uuid + ".life-taken", 0L);
         requestSave();
         return true;
     }
@@ -252,6 +259,126 @@ final class YamlPlayerData implements PlayerData {
     }
 
     @Override
+    public long damageDealt(UUID uuid) {
+        return readLong(uuid, "damage-dealt");
+    }
+
+    @Override
+    public long damageTaken(UUID uuid) {
+        return readLong(uuid, "damage-taken");
+    }
+
+    @Override
+    public long lifeDealt(UUID uuid) {
+        return readLong(uuid, "life-dealt");
+    }
+
+    @Override
+    public long lifeTaken(UUID uuid) {
+        return readLong(uuid, "life-taken");
+    }
+
+    @Override
+    public int assists(UUID uuid) {
+        return uuid == null ? 0 : store.configuration().getInt(uuid + ".assists", 0);
+    }
+
+    @Override
+    public int streak(UUID uuid) {
+        return uuid == null ? 0 : store.configuration().getInt(uuid + ".streak", 0);
+    }
+
+    @Override
+    public void setStreak(UUID uuid, int streak) {
+        if (!canMutate(uuid)) {
+            return;
+        }
+        store.configuration().set(uuid + ".streak", Math.max(0, streak));
+        requestSave();
+    }
+
+    @Override
+    public void addCombatDamage(UUID attacker, UUID victim, long hundredths) {
+        if (hundredths <= 0) {
+            return;
+        }
+        addHundredths(attacker, "damage-dealt", hundredths);
+        addHundredths(attacker, "life-dealt", hundredths);
+        addHundredths(victim, "damage-taken", hundredths);
+        addHundredths(victim, "life-taken", hundredths);
+    }
+
+    @Override
+    public void addAssist(UUID uuid) {
+        if (!canMutate(uuid)) {
+            return;
+        }
+        int assists = assists(uuid);
+        if (assists < Integer.MAX_VALUE) {
+            store.configuration().set(uuid + ".assists", assists + 1);
+            requestSave();
+        }
+    }
+
+    @Override
+    public void resetLife(UUID uuid) {
+        if (!canMutate(uuid)) {
+            return;
+        }
+        store.configuration().set(uuid + ".life-dealt", 0L);
+        store.configuration().set(uuid + ".life-taken", 0L);
+        requestSave();
+    }
+
+    @Override
+    public List<DamageEntry> topDamage(int limit) {
+        List<DamageEntry> entries = new ArrayList<>();
+        for (String key : store.configuration().getKeys(false)) {
+            if (key.length() != 36) {
+                continue;
+            }
+            try {
+                UUID id = UUID.fromString(key);
+                long dealt = store.configuration().getLong(key + ".damage-dealt", 0L);
+                String name = store.configuration().getString(key + ".name");
+                if (name == null || name.isBlank()) {
+                    name = id.toString().substring(0, 8);
+                }
+                entries.add(new DamageEntry(id, name, dealt));
+            } catch (IllegalArgumentException ignored) {
+                // Not a player row.
+            }
+        }
+        entries.sort(java.util.Comparator.comparingLong(DamageEntry::hundredths).reversed());
+        if (limit >= 0 && entries.size() > limit) {
+            return List.copyOf(entries.subList(0, limit));
+        }
+        return List.copyOf(entries);
+    }
+
+    @Override
+    public void refresh(UUID uuid) {
+    }
+
+    @Override
+    public void handoff(UUID uuid) {
+        flush();
+    }
+
+    @Override
+    public String storedPrefs(UUID uuid) {
+        return "";
+    }
+
+    @Override
+    public void storedPrefs(UUID uuid, String prefs) {
+    }
+
+    @Override
+    public void pullRemote(java.util.Set<UUID> online) {
+    }
+
+    @Override
     public void flush() {
         pending.cancel();
         pending = TaskRunner.Cancellable.NONE;
@@ -276,6 +403,25 @@ final class YamlPlayerData implements PlayerData {
 
     private boolean canMutate(UUID uuid) {
         return store.isWritable() && uuid != null;
+    }
+
+    private long readLong(UUID uuid, String key) {
+        if (uuid == null) {
+            return 0L;
+        }
+        return Math.max(0L, store.configuration().getLong(uuid + "." + key, 0L));
+    }
+
+    private void addHundredths(UUID uuid, String key, long hundredths) {
+        if (!canMutate(uuid)) {
+            return;
+        }
+        long updated = readLong(uuid, key) + hundredths;
+        if (updated < 0L) {
+            updated = Long.MAX_VALUE;
+        }
+        store.configuration().set(uuid + "." + key, updated);
+        requestSave();
     }
 
     private void preserveCorruptFile(Path dataFile) {

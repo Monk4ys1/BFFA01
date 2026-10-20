@@ -15,6 +15,16 @@ actionbar:
   enabled: true
   idle: actionbar-idle
 
+# Live hit numbers. damage.enabled in config.yml is the global switch.
+# indicators: floating text at the hit. actionbar: combo line. summary: chat after a kill or death.
+# ticks: how long an indicator stays. merge-millis: rapid hits share one indicator.
+damage:
+  indicators: true
+  actionbar: true
+  summary: true
+  ticks: 18
+  merge-millis: 150
+
 bossbar:
   enabled: true
   title: bossbar-title

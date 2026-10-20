@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.combat.DamageMath;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -42,6 +43,12 @@ public class StatsCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(TextLines.render(plugin, "stats-deaths", "&7Deaths: &c%deaths%", Map.of("deaths", Integer.toString(deaths))));
         player.sendMessage(TextLines.render(plugin, "stats-kd", "&7K/D: &e%kd%", Map.of("kd", ratio)));
         player.sendMessage(TextLines.render(plugin, "stats-coins", "&7Coins: &6%coins%", Map.of("coins", coins)));
+        player.sendMessage(TextLines.render(plugin, "stats-damage", "&7Damage: &e%damage%",
+                Map.of("damage", DamageMath.format(plugin.getDataManager().damageDealt(player.getUniqueId())))));
+        player.sendMessage(TextLines.render(plugin, "stats-damage-taken", "&7Taken: &c%damage%",
+                Map.of("damage", DamageMath.format(plugin.getDataManager().damageTaken(player.getUniqueId())))));
+        player.sendMessage(TextLines.render(plugin, "stats-assists", "&7Assists: &b%assists%",
+                Map.of("assists", Integer.toString(plugin.getDataManager().assists(player.getUniqueId())))));
         player.sendMessage(TextLines.render(plugin, "stats-footer", "&7-------------------------", Map.of()));
 
         return true;

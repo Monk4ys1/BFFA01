@@ -3,6 +3,7 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.TaskRunner;
 import infinode.org.example.bFFA01.config.StorageSettings;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -23,7 +24,9 @@ public class DataManager {
     private TaskRunner runner;
     private String storageLabel = "yaml";
     private List<KillEntry> ranked = List.of();
+    private List<DamageEntry> damageBoard = List.of();
     private boolean rankedDirty = true;
+    private boolean damageDirty = true;
 
     public DataManager(BFFA01 plugin) {
         this.plugin = plugin;
@@ -75,6 +78,7 @@ public class DataManager {
             }
             data = next;
             rankedDirty = true;
+            damageDirty = true;
             if (runner != null) {
                 data.useRunner(runner);
             }
@@ -169,6 +173,7 @@ public class DataManager {
         synchronized (gate) {
             boolean reset = data.resetStats(uuid);
             rankedDirty = true;
+            damageDirty = true;
             return reset;
         }
     }
@@ -204,6 +209,108 @@ public class DataManager {
         }
     }
 
+    public long damageDealt(UUID uuid) {
+        synchronized (gate) {
+            return data.damageDealt(uuid);
+        }
+    }
+
+    public long damageTaken(UUID uuid) {
+        synchronized (gate) {
+            return data.damageTaken(uuid);
+        }
+    }
+
+    public long lifeDealt(UUID uuid) {
+        synchronized (gate) {
+            return data.lifeDealt(uuid);
+        }
+    }
+
+    public long lifeTaken(UUID uuid) {
+        synchronized (gate) {
+            return data.lifeTaken(uuid);
+        }
+    }
+
+    public int assists(UUID uuid) {
+        synchronized (gate) {
+            return data.assists(uuid);
+        }
+    }
+
+    public int streak(UUID uuid) {
+        synchronized (gate) {
+            return data.streak(uuid);
+        }
+    }
+
+    public void setStreak(UUID uuid, int streak) {
+        synchronized (gate) {
+            data.setStreak(uuid, streak);
+        }
+    }
+
+    public void addCombatDamage(UUID attacker, UUID victim, long hundredths) {
+        synchronized (gate) {
+            data.addCombatDamage(attacker, victim, hundredths);
+            damageDirty = true;
+        }
+    }
+
+    public void addAssist(UUID uuid) {
+        synchronized (gate) {
+            data.addAssist(uuid);
+        }
+    }
+
+    public void resetLife(UUID uuid) {
+        synchronized (gate) {
+            data.resetLife(uuid);
+        }
+    }
+
+    public void refresh(UUID uuid) {
+        synchronized (gate) {
+            data.refresh(uuid);
+            rankedDirty = true;
+            damageDirty = true;
+        }
+    }
+
+    public void handoff(UUID uuid) {
+        synchronized (gate) {
+            data.handoff(uuid);
+        }
+    }
+
+    public String storedPrefs(UUID uuid) {
+        synchronized (gate) {
+            return data.storedPrefs(uuid);
+        }
+    }
+
+    public void storedPrefs(UUID uuid, String prefs) {
+        synchronized (gate) {
+            data.storedPrefs(uuid, prefs);
+        }
+    }
+
+    public void pullRemote(java.util.Set<UUID> online) {
+        synchronized (gate) {
+            data.pullRemote(online);
+            rankedDirty = true;
+            damageDirty = true;
+        }
+    }
+
+    public void invalidateBoards() {
+        synchronized (gate) {
+            rankedDirty = true;
+            damageDirty = true;
+        }
+    }
+
     public List<KillEntry> topKills(int limit) {
         synchronized (gate) {
             List<KillEntry> all = ranked();
@@ -212,6 +319,25 @@ public class DataManager {
             }
             return List.copyOf(all.subList(0, limit));
         }
+    }
+
+    public List<DamageEntry> topDamage(int limit) {
+        synchronized (gate) {
+            List<DamageEntry> all = damageRanked();
+            if (limit < 0 || limit >= all.size()) {
+                return all;
+            }
+            return List.copyOf(all.subList(0, limit));
+        }
+    }
+
+    private List<DamageEntry> damageRanked() {
+        if (!damageDirty) {
+            return damageBoard;
+        }
+        damageBoard = List.copyOf(data.topDamage(500));
+        damageDirty = false;
+        return damageBoard;
     }
 
     private List<KillEntry> ranked() {

@@ -11,6 +11,10 @@ public interface WebhookPublisher {
         send(killer + " killed " + victim + " (streak " + streak + ")");
     }
 
+    default void kill(String killer, String victim, int streak, double damage, java.util.List<infinode.org.example.bFFA01.api.DamageCredit> assists) {
+        kill(killer, victim, streak);
+    }
+
     default void death(String player) {
         send(player + " died");
     }

@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.hooks;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.api.DamageCredit;
 import infinode.org.example.bFFA01.api.event.BuildFFADeathEvent;
 import infinode.org.example.bFFA01.api.event.BuildFFAKillEvent;
 import infinode.org.example.bFFA01.api.event.BuildFFAMapChangeEvent;
@@ -11,6 +12,9 @@ import infinode.org.example.bFFA01.hooks.luck.LuckPermsHook;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
+
+import java.util.List;
+import java.util.UUID;
 
 /**
  * One place gameplay code notifies integrations and other plugins.
@@ -33,29 +37,65 @@ public final class MatchEvents {
     }
 
     public static void kill(BFFA01 plugin, Player killer, Player victim, String victimName) {
+        UUID victimId = null;
+        if (victim != null) {
+            try {
+                victimId = victim.getUniqueId();
+            } catch (Throwable ignored) {
+                victimId = null;
+            }
+        }
+        kill(plugin, killer, victim, victimName, victimId, 0.0, List.of());
+    }
+
+    /**
+     * {@code victim} is null when that player has already quit. The id, name, damage, and assists
+     * are snapshots and stay valid on the killer's region thread.
+     */
+    public static void kill(BFFA01 plugin, Player killer, Player victim, String victimName, UUID victimId,
+                            double damage, List<DamageCredit> assists) {
         if (plugin == null || killer == null) {
             return;
         }
         int streak = streak(plugin, killer);
-        if (victim != null) {
-            fire(plugin, new BuildFFAKillEvent(killer, victim, streak));
-        }
+        fire(plugin, new BuildFFAKillEvent(killer, victim, streak, victimId, victimName == null ? "" : victimName, damage, assists));
         String killerName = "";
         try {
             killerName = killer.getName();
         } catch (Throwable ignored) {
             killerName = "";
         }
-        webhook(plugin).kill(killerName == null ? "" : killerName, victimName == null ? "" : victimName, streak);
+        webhook(plugin).kill(killerName == null ? "" : killerName, victimName == null ? "" : victimName, streak, damage, assists);
         signal(plugin, killer);
     }
 
     public static void death(BFFA01 plugin, Player victim, Player killer) {
+        UUID killerId = null;
+        String killerName = "";
+        if (killer != null) {
+            try {
+                killerId = killer.getUniqueId();
+                killerName = killer.getName();
+            } catch (Throwable ignored) {
+                killerName = "";
+            }
+        }
+        death(plugin, victim, killer, killerId, killerName, List.of());
+    }
+
+    public static void death(BFFA01 plugin, Player victim, Player killer, UUID killerId, String killerName,
+                             List<DamageCredit> breakdown) {
         if (plugin == null || victim == null) {
             return;
         }
-        fire(plugin, new BuildFFADeathEvent(victim, killer));
-        webhook(plugin).death(victim.getName());
+        fire(plugin, new BuildFFADeathEvent(victim, killer, killerId, killerName, breakdown));
+        String name = "";
+        try {
+            name = victim.getName();
+        } catch (Throwable ignored) {
+            name = "";
+        }
+        webhook(plugin).death(name == null ? "" : name);
     }
 
     public static void streak(BFFA01 plugin, Player player, int streak, boolean ruined) {

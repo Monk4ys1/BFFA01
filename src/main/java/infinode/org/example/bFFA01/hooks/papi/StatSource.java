@@ -41,4 +41,32 @@ public interface StatSource {
     int topKills(int rank);
 
     String topKd(int rank);
+
+    default String damage(UUID id) {
+        return "0";
+    }
+
+    default String damageTaken(UUID id) {
+        return "0";
+    }
+
+    default String lifeDamage(UUID id) {
+        return "0";
+    }
+
+    default String lifeTaken(UUID id) {
+        return "0";
+    }
+
+    default int assists(UUID id) {
+        return 0;
+    }
+
+    default String topDamage(int rank) {
+        return "";
+    }
+
+    default String topDamageName(int rank) {
+        return "";
+    }
 }

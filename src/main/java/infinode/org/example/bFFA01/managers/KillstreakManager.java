@@ -24,10 +24,20 @@ public class KillstreakManager {
         this.plugin = plugin;
     }
 
+    public void adopt(Player player, int stored) {
+        if (player == null) {
+            return;
+        }
+        streaks.put(player.getUniqueId(), Math.max(0, stored));
+    }
+
     public void addKill(Player player) {
         UUID uuid = player.getUniqueId();
         int streak = streaks.getOrDefault(uuid, 0) + 1;
         streaks.put(uuid, streak);
+        if (plugin.getDataManager() != null) {
+            plugin.getDataManager().setStreak(uuid, streak);
+        }
 
         boolean milestone = false;
         if (streak == 3) {
@@ -55,6 +65,9 @@ public class KillstreakManager {
         }
         if (milestone) {
             MatchEvents.streak(plugin, player, streak, false);
+            if (plugin.network() != null) {
+                plugin.network().publishStreak(player.getName(), streak);
+            }
         }
         if (plugin.presentation() != null) {
             plugin.presentation().onStreak(player, streak);
@@ -65,6 +78,9 @@ public class KillstreakManager {
         UUID uuid = player.getUniqueId();
         int streak = streaks.getOrDefault(uuid, 0);
         streaks.put(uuid, 0);
+        if (plugin.getDataManager() != null) {
+            plugin.getDataManager().setStreak(uuid, 0);
+        }
         if (streak >= 5) {
             announce("killstreak-ruined", "&c%player%'s Killstreak of %streak% was ruined!",
                     Map.of("player", player.getName(), "streak", Integer.toString(streak)));

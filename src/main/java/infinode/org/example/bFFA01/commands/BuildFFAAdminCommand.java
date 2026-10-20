@@ -20,7 +20,7 @@ import java.util.function.Function;
 public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
-            "setmap", "swapmap", "addcoins", "removecoins", "resetstats", "reload"
+            "setmap", "swapmap", "addcoins", "removecoins", "resetstats", "reload", "network"
     );
 
     private final BFFA01 plugin;
@@ -66,6 +66,7 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
             case "resetstats" -> resetStats(sender, args);
             case "swapmap" -> swapMap(sender, args);
             case "reload" -> reload(sender);
+            case "network" -> network(sender);
             default -> sendHelp(sender);
         }
         return true;
@@ -219,6 +220,22 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
         line(sender, "help-resetstats", "&b/bffa resetstats <player> &7- Reset kills/deaths");
         line(sender, "help-swapmap", "&b/bffa swapmap [name] &7- Force swap map (with 3s sequence)");
         line(sender, "help-reload", "&b/bffa reload &7- Reload config and messages");
+        line(sender, "help-network", "&b/bffa network &7- Show this server's network status");
+    }
+
+    private void network(CommandSender sender) {
+        var link = plugin.network();
+        if (link == null || !link.enabled()) {
+            reply(sender, "network-disabled", "&7This server is not part of a network. Set network.enabled in config.yml.", Map.of());
+            return;
+        }
+        String storage = plugin.getDataManager() == null ? "yaml" : plugin.getDataManager().storageLabel();
+        reply(sender, "network-status", "&aServer &e%id% &aon &e%storage%&a. Redis: &e%redis%&a.",
+                Map.of(
+                        "id", link.serverId(),
+                        "storage", storage,
+                        "redis", link.redisConnected() ? "connected" : "off"
+                ));
     }
 
     private void line(CommandSender sender, String key, String fallback) {

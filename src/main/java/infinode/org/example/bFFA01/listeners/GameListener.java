@@ -1,6 +1,10 @@
 package infinode.org.example.bFFA01.listeners;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.api.DamageCredit;
+import infinode.org.example.bFFA01.combat.DamageMath;
+import infinode.org.example.bFFA01.combat.DamageSettings;
+import infinode.org.example.bFFA01.combat.DamageShare;
 import infinode.org.example.bFFA01.compat.Health;
 import infinode.org.example.bFFA01.hooks.MatchEvents;
 import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
@@ -163,7 +167,10 @@ public class GameListener implements Listener {
             lastDamager.remove(player.getUniqueId());
         }
         player.setPlayerListName((inCombat ? ChatColor.RED : ChatColor.GREEN) + player.getName());
-        if (inCombat) {
+        boolean damageLine = plugin.damageFeedback() != null && plugin.damageFeedback().holdsActionBar(player.getUniqueId(), now);
+        if (damageLine) {
+            // The hit line owns the action bar for a moment.
+        } else if (inCombat) {
             Long lastCombat = lastCombatTime.get(player.getUniqueId());
             long remainingMillis = pauseMillis - (now - (lastCombat == null ? now : lastCombat));
             String seconds = String.format(Locale.US, "%.1f", remainingMillis / 1000.0);
@@ -193,6 +200,13 @@ public class GameListener implements Listener {
         Player player = event.getPlayer();
         if (player == null) {
             return;
+        }
+        plugin.getDataManager().refresh(player.getUniqueId());
+        if (plugin.getKillstreakManager() != null) {
+            plugin.getKillstreakManager().adopt(player, plugin.getDataManager().streak(player.getUniqueId()));
+        }
+        if (plugin.presentation() != null) {
+            plugin.presentation().importStoredPrefs(player);
         }
         plugin.getDataManager().rememberName(player.getUniqueId(), player.getName());
         event.setJoinMessage(TextLines.render(plugin, "join", "&8[&a+&8] &7%player%",
@@ -231,23 +245,28 @@ public class GameListener implements Listener {
             UUID damagerId = lastDamager.get(player.getUniqueId());
             Player killer = null;
             String victimName = player.getName() == null ? "" : player.getName();
+            UUID victimId = player.getUniqueId();
             Location deathAt = locationOf(player);
             if (damagerId != null) {
                 killer = Bukkit.getPlayer(damagerId);
-                if (killer != null && killer.isOnline() && !killer.equals(player)) {
-                    Player credited = killer;
-                    Player victim = player;
-                    onEntity(killer, () -> creditKill(credited, victim, victimName, deathAt, true));
-                }
             }
-
+            Fight fight = settle(player, killer);
             plugin.getDataManager().addDeath(player.getUniqueId());
             plugin.getKillstreakManager().resetStreak(player);
-            MatchEvents.death(plugin, player, killer);
+            MatchEvents.death(plugin, player, null, fight.killerId, fight.killerName, fight.breakdown);
+            if (plugin.damageFeedback() != null) {
+                plugin.damageFeedback().summarizeDeath(player, fight.breakdown);
+            }
+            if (killer != null && killer.isOnline() && !killer.equals(player)) {
+                Player credited = killer;
+                onEntity(killer, () -> creditKill(credited, null, victimId, victimName, deathAt, true, fight.killerDamage, fight.assists));
+            }
+
             vampireFangActive.remove(player.getUniqueId());
             lastCombatTime.remove(player.getUniqueId());
             lastDamager.remove(player.getUniqueId());
             combatFlags.remove(player.getUniqueId());
+            persistSession(player);
             applyCombatLogBan(player, now);
             event.setQuitMessage(null);
             return;
@@ -257,6 +276,10 @@ public class GameListener implements Listener {
         lastCombatTime.remove(player.getUniqueId());
         lastDamager.remove(player.getUniqueId());
         combatFlags.remove(player.getUniqueId());
+        if (plugin.combat() != null) {
+            plugin.combat().forget(player.getUniqueId());
+        }
+        persistSession(player);
         event.setQuitMessage(TextLines.render(plugin, "quit", "&8[&c-&8] &7%player%",
                 Map.of("player", name)));
     }
@@ -424,6 +447,7 @@ public class GameListener implements Listener {
         int safeY = getMapSetting("death-y-level", 50);
         Player player = event.getPlayer();
         if (to.getY() < safeY && player.getHealth() > 0 && !player.isDead()) {
+            attributeVoid(player);
             player.setHealth(0.0);
         }
     }
@@ -490,6 +514,18 @@ public class GameListener implements Listener {
         return null;
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamageApplied(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player victim)) {
+            return;
+        }
+        if (event instanceof EntityDamageByEntityEvent byEntity) {
+            recordPlayerHit(byEntity, victim);
+            return;
+        }
+        recordEnvironment(event, victim);
+    }
+
     @EventHandler
     public void onItemDamage(PlayerItemDamageEvent event) {
         event.setCancelled(true);
@@ -502,6 +538,7 @@ public class GameListener implements Listener {
 
         Player dead = event.getEntity();
         Player killer = dead.getKiller();
+        Fight fight = settle(dead, killer);
 
         plugin.getDataManager().addDeath(dead.getUniqueId());
         plugin.getKillstreakManager().resetStreak(dead);
@@ -509,16 +546,20 @@ public class GameListener implements Listener {
         lastDamager.remove(dead.getUniqueId());
         combatFlags.put(dead.getUniqueId(), false);
 
-        MatchEvents.death(plugin, dead, killer);
+        MatchEvents.death(plugin, dead, killer, fight.killerId, fight.killerName, fight.breakdown);
+        if (plugin.damageFeedback() != null) {
+            plugin.damageFeedback().summarizeDeath(dead, fight.breakdown);
+        }
         if (killer != null && !killer.equals(dead)) {
             String victimName = dead.getName() == null ? "" : dead.getName();
-            String killerName = killer.getName() == null ? "" : killer.getName();
+            String killerName = fight.killerName.isBlank() ? (killer.getName() == null ? "" : killer.getName()) : fight.killerName;
             Location deathAt = locationOf(dead);
+            UUID victimId = dead.getUniqueId();
             event.setDeathMessage(TextLines.prefixed(plugin, "player-killed",
                     "&c%player% &7was killed by &a%killer%&7.",
                     Map.of("player", victimName, "killer", killerName)));
             Player victim = dead;
-            onEntity(killer, () -> creditKill(killer, victim, victimName, deathAt, false));
+            onEntity(killer, () -> creditKill(killer, victim, victimId, victimName, deathAt, false, fight.killerDamage, fight.assists));
             if (plugin.presentation() != null) {
                 plugin.presentation().onDeath(dead, killerName);
             }
@@ -542,7 +583,8 @@ public class GameListener implements Listener {
         }, 5L);
     }
 
-    private void creditKill(Player killer, Player dead, String victimName, Location deathAt, boolean announce) {
+    private void creditKill(Player killer, Player dead, UUID victimId, String victimName, Location deathAt, boolean announce,
+                            double damage, List<DamageCredit> assists) {
         if (killer == null) {
             return;
         }
@@ -584,7 +626,13 @@ public class GameListener implements Listener {
                 });
             }
         }
-        MatchEvents.kill(plugin, killer, dead, safeVictim);
+        MatchEvents.kill(plugin, killer, dead, safeVictim, victimId, damage, assists);
+        if (plugin.damageFeedback() != null) {
+            plugin.damageFeedback().summarizeKill(killer, safeVictim, damage, assists);
+        }
+        if (plugin.network() != null) {
+            plugin.network().publishBoard();
+        }
     }
 
     private static boolean online(Player player) {
@@ -994,6 +1042,236 @@ public class GameListener implements Listener {
         for (TrackedPlacement placement : created) {
             scheduleAt(placement, this::releasePlacement, 100L);
         }
+    }
+
+    private void recordPlayerHit(EntityDamageByEntityEvent event, Player victim) {
+        Player damager = attacker(event.getDamager());
+        if (damager == null || damager.equals(victim) || plugin.combat() == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long hundredths = DamageMath.hundredths(event.getFinalDamage(), victim.getHealth(), absorptionTaken(event));
+        if (hundredths <= 0) {
+            return;
+        }
+        boolean crit = crit(damager);
+        boolean sweep = sweep(event);
+        String weapon = weapon(damager);
+        plugin.combat().record(victim.getUniqueId(), damager.getUniqueId(), safeName(damager), hundredths, weapon, now, crit, sweep);
+        DamageSettings settings = damageSettings();
+        double remaining = Math.max(0.0, victim.getHealth() - Math.min(event.getFinalDamage(), victim.getHealth()));
+        long combo = plugin.combat().combo(victim.getUniqueId(), damager.getUniqueId(), now, settings.assistMillis());
+        if (plugin.damageFeedback() != null) {
+            plugin.damageFeedback().showHit(damager, victim, hitLocation(victim), hundredths, remaining, combo, crit, sweep);
+        }
+    }
+
+    private void recordEnvironment(EntityDamageEvent event, Player victim) {
+        EntityDamageEvent.DamageCause cause = event.getCause();
+        if (cause == EntityDamageEvent.DamageCause.FALL
+                || cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
+                || cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (cause == EntityDamageEvent.DamageCause.VOID && plugin.combat() != null && plugin.combat().takeVoidSkip(victim.getUniqueId(), now)) {
+            return;
+        }
+        if (!attributable(cause) || plugin.combat() == null) {
+            return;
+        }
+        UUID last = lastDamager.get(victim.getUniqueId());
+        Long fought = lastCombatTime.get(victim.getUniqueId());
+        DamageSettings settings = damageSettings();
+        if (last == null || fought == null || now - fought > settings.assistMillis()) {
+            return;
+        }
+        long hundredths = DamageMath.hundredths(event.getFinalDamage(), victim.getHealth(), absorptionTaken(event));
+        if (hundredths <= 0) {
+            return;
+        }
+        Player damager = Bukkit.getPlayer(last);
+        plugin.combat().record(victim.getUniqueId(), last, safeName(damager), hundredths, cause.name().toLowerCase(Locale.ROOT), now, false, false);
+        if (plugin.damageFeedback() != null) {
+            long combo = plugin.combat().combo(victim.getUniqueId(), last, now, settings.assistMillis());
+            double remaining = Math.max(0.0, victim.getHealth() - Math.min(event.getFinalDamage(), victim.getHealth()));
+            plugin.damageFeedback().showHit(damager, victim, hitLocation(victim), hundredths, remaining, combo, false, false);
+        }
+    }
+
+    private void attributeVoid(Player player) {
+        if (plugin.combat() == null) {
+            return;
+        }
+        UUID last = lastDamager.get(player.getUniqueId());
+        Long fought = lastCombatTime.get(player.getUniqueId());
+        long now = System.currentTimeMillis();
+        DamageSettings settings = damageSettings();
+        if (last == null || fought == null || now - fought > settings.assistMillis()) {
+            return;
+        }
+        long hundredths = DamageMath.hundredths(player.getHealth(), player.getHealth(), 0);
+        if (hundredths <= 0) {
+            return;
+        }
+        Player damager = Bukkit.getPlayer(last);
+        plugin.combat().record(player.getUniqueId(), last, safeName(damager), hundredths, "void", now, false, false);
+        plugin.combat().skipNextVoid(player.getUniqueId(), now);
+        if (plugin.damageFeedback() != null) {
+            long combo = plugin.combat().combo(player.getUniqueId(), last, now, settings.assistMillis());
+            plugin.damageFeedback().showHit(damager, player, hitLocation(player), hundredths, 0, combo, false, false);
+        }
+    }
+
+    private Fight settle(Player dead, Player killer) {
+        DamageSettings settings = damageSettings();
+        long now = System.currentTimeMillis();
+        List<DamageShare> shares = plugin.combat() == null
+                ? List.of()
+                : plugin.combat().settle(dead.getUniqueId(), now, settings.assistMillis());
+        UUID killerId = null;
+        String killerName = "";
+        if (killer != null) {
+            try {
+                killerId = killer.getUniqueId();
+                killerName = killer.getName() == null ? "" : killer.getName();
+            } catch (Throwable ignored) {
+                killerName = "";
+            }
+        }
+        double killerDamage = 0;
+        List<DamageCredit> assists = new ArrayList<>();
+        List<DamageCredit> breakdown = new ArrayList<>();
+        for (DamageShare share : shares) {
+            if (plugin.getDataManager() != null) {
+                plugin.getDataManager().addCombatDamage(share.attacker(), dead.getUniqueId(), share.hundredths());
+            }
+            DamageCredit credit = new DamageCredit(share.attacker(), share.label(), DamageMath.hearts(share.hundredths()), weaponLabel(share.weapon()));
+            breakdown.add(credit);
+            if (killerId != null && killerId.equals(share.attacker())) {
+                killerDamage = credit.damage();
+            } else if (share.hundredths() >= settings.minimumHundredths() && plugin.getDataManager() != null) {
+                plugin.getDataManager().addAssist(share.attacker());
+                assists.add(credit);
+            }
+        }
+        if (plugin.getDataManager() != null) {
+            plugin.getDataManager().resetLife(dead.getUniqueId());
+        }
+        return new Fight(killerId, killerName, killerDamage, List.copyOf(assists), List.copyOf(breakdown));
+    }
+
+    private void persistSession(Player player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return;
+        }
+        UUID id = player.getUniqueId();
+        if (plugin.getKillstreakManager() != null) {
+            plugin.getDataManager().setStreak(id, plugin.getKillstreakManager().getStreak(player));
+        }
+        if (plugin.presentation() != null) {
+            plugin.presentation().exportPrefs(player);
+        }
+        plugin.getDataManager().handoff(id);
+    }
+
+    private DamageSettings damageSettings() {
+        if (plugin.damageFeedback() != null) {
+            return plugin.damageFeedback().settings();
+        }
+        return DamageSettings.load(null, null);
+    }
+
+    private static double absorptionTaken(EntityDamageEvent event) {
+        try {
+            Class<?> modifier = Class.forName("org.bukkit.event.entity.EntityDamageEvent$DamageModifier");
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            Object absorption = Enum.valueOf((Class) modifier, "ABSORPTION");
+            java.lang.reflect.Method applicable = event.getClass().getMethod("isDamageModifierApplicable", modifier);
+            if (!Boolean.TRUE.equals(applicable.invoke(event, absorption))) {
+                return 0;
+            }
+            java.lang.reflect.Method get = event.getClass().getMethod("getDamage", modifier);
+            Object value = get.invoke(event, absorption);
+            if (value instanceof Number number && number.doubleValue() < 0) {
+                return -number.doubleValue();
+            }
+        } catch (Throwable ignored) {
+            return 0;
+        }
+        return 0;
+    }
+
+    private static boolean crit(Player attacker) {
+        try {
+            return attacker.getFallDistance() > 0.0f
+                    && !attacker.isOnGround()
+                    && !attacker.isInWater()
+                    && !attacker.isClimbing()
+                    && !attacker.isInsideVehicle();
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    private static boolean sweep(EntityDamageByEntityEvent event) {
+        try {
+            return "ENTITY_SWEEP_ATTACK".equals(event.getCause().name());
+        } catch (Throwable ex) {
+            return false;
+        }
+    }
+
+    private static String weapon(Player attacker) {
+        try {
+            ItemStack hand = attacker.getInventory().getItemInMainHand();
+            if (hand == null || hand.getType().isAir()) {
+                return "";
+            }
+            return hand.getType().name();
+        } catch (Throwable ex) {
+            return "";
+        }
+    }
+
+    private static String weaponLabel(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        return raw.toLowerCase(Locale.ROOT).replace('_', ' ');
+    }
+
+    private static String safeName(Player player) {
+        if (player == null) {
+            return "";
+        }
+        try {
+            return player.getName() == null ? "" : player.getName();
+        } catch (Throwable ex) {
+            return "";
+        }
+    }
+
+    private static Location hitLocation(Player victim) {
+        try {
+            return victim.getEyeLocation().clone();
+        } catch (Throwable ex) {
+            return locationOf(victim);
+        }
+    }
+
+    private static boolean attributable(EntityDamageEvent.DamageCause cause) {
+        if (cause == null) {
+            return false;
+        }
+        return switch (cause) {
+            case VOID, LAVA, FIRE, FIRE_TICK, DROWNING, SUFFOCATION, CONTACT, HOT_FLOOR, WITHER, POISON,
+                    FREEZE, CRAMMING, STARVATION, MAGIC, DRAGON_BREATH, FALLING_BLOCK -> true;
+            default -> false;
+        };
+    }
+
+    private record Fight(UUID killerId, String killerName, double killerDamage, List<DamageCredit> assists, List<DamageCredit> breakdown) {
     }
 
     private void onEntity(Player player, Runnable task) {

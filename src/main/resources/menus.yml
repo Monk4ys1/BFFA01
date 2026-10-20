@@ -226,6 +226,27 @@ menus:
         lore:
           - menu-stats-streak-lore
         action: page0
+      damage:
+        slot: 18
+        material: REDSTONE
+        name: menu-stats-damage
+        lore:
+          - menu-stats-damage-lore
+        action: page0
+      taken:
+        slot: 24
+        material: REDSTONE_BLOCK
+        name: menu-stats-taken
+        lore:
+          - menu-stats-taken-lore
+        action: page0
+      assists:
+        slot: 26
+        material: SPECTRAL_ARROW
+        name: menu-stats-assists
+        lore:
+          - menu-stats-assists-lore
+        action: page0
       board:
         slot: 25
         material: BOOK
@@ -233,6 +254,13 @@ menus:
         lore:
           - menu-stats-board-lore
         action: page:next
+      damage-board:
+        slot: 27
+        material: REDSTONE
+        name: menu-stats-damage-board
+        lore:
+          - menu-stats-damage-board-lore
+        action: page:damage
       back:
         slot: 45
         material: ARROW
@@ -287,6 +315,13 @@ menus:
         lore:
           - menu-settings-actionbar-lore
         action: toggle:actionbar
+      damage:
+        slot: 13
+        material: REDSTONE
+        name: menu-settings-damage
+        lore:
+          - menu-settings-damage-lore
+        action: toggle:damage
       effect:
         slot: 31
         material: FIREWORK_ROCKET

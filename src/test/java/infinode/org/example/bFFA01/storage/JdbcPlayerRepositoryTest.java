@@ -48,6 +48,44 @@ class JdbcPlayerRepositoryTest {
             assertEquals(15, stored.coins());
             assertTrue(stored.hasUpgrade("sharpness"));
             assertEquals("IRON_SWORD", stored.layout(0));
+            record.addDealt(250);
+            record.addTaken(80);
+            record.addAssist();
+            record.streak(4);
+            repository.saveAll(List.of(record));
+            PlayerRecord again = repository.loadOne(id);
+            assertEquals(250, again.damageDealt());
+            assertEquals(80, again.damageTaken());
+            assertEquals(1, again.assists());
+            assertEquals(4, again.streak());
+        }
+    }
+
+    @Test
+    void legacySqliteTableGainsDamageColumns() throws Exception {
+        Path file = tempDir.resolve("old.db");
+        try (java.sql.Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + file.toAbsolutePath())) {
+            connection.createStatement().execute(
+                    "CREATE TABLE bffa_player ("
+                            + "id VARCHAR(36) NOT NULL PRIMARY KEY,"
+                            + "player_name VARCHAR(16) NOT NULL DEFAULT '',"
+                            + "kills INT NOT NULL DEFAULT 0,"
+                            + "deaths INT NOT NULL DEFAULT 0,"
+                            + "coins INT NOT NULL DEFAULT 0,"
+                            + "upgrades VARCHAR(512) NOT NULL DEFAULT '',"
+                            + "layout VARCHAR(320) NOT NULL DEFAULT '')");
+            connection.createStatement().execute(
+                    "INSERT INTO bffa_player (id, player_name, kills) VALUES ('11111111-1111-1111-1111-111111111111', 'Old', 4)");
+        }
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", "old.db");
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(StorageSettings.resolve(config), tempDir)) {
+            List<PlayerRecord> loaded = repository.loadAll();
+            assertEquals(1, loaded.size());
+            assertEquals(4, loaded.get(0).kills());
+            assertEquals(0, loaded.get(0).damageDealt());
+            assertEquals(0, loaded.get(0).assists());
         }
     }
 

@@ -33,7 +33,7 @@ public final class BffaExpansion extends PlaceholderExpansion {
         try {
             return plugin.getDescription().getVersion();
         } catch (Throwable ex) {
-            return "3.6";
+            return "3.7";
         }
     }
 

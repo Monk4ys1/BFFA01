@@ -2,6 +2,8 @@ package infinode.org.example.bFFA01.ui.menu;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.shop.ShopOffer;
+import infinode.org.example.bFFA01.combat.DamageMath;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import infinode.org.example.bFFA01.text.MiniText;
 import infinode.org.example.bFFA01.ui.Presentation;
@@ -155,9 +157,23 @@ public final class MenuModel {
         }
     }
 
+    public int firstDamagePage() {
+        return 1 + killBoardPages();
+    }
+
+    private int killBoardPages() {
+        int kills = plugin.getDataManager() == null ? 0 : plugin.getDataManager().topKills(45).size();
+        return MenuPages.count(kills, contentSize("stats"));
+    }
+
     private void stats(List<MenuView.Control> controls, List<String> body, MenuCatalog.Menu menu, int page,
                        org.bukkit.entity.Player player, Map<String, String> values) {
         if (page <= 0) {
+            return;
+        }
+        int killPages = killBoardPages();
+        if (page > killPages) {
+            damageBoard(controls, body, menu, page - killPages, player);
             return;
         }
         List<KillEntry> top = plugin.getDataManager() == null ? List.of() : plugin.getDataManager().topKills(45);
@@ -188,12 +204,43 @@ public final class MenuModel {
         }
     }
 
+    private void damageBoard(List<MenuView.Control> controls, List<String> body, MenuCatalog.Menu menu, int page,
+                             org.bukkit.entity.Player player) {
+        List<DamageEntry> top = plugin.getDataManager() == null ? List.of() : plugin.getDataManager().topDamage(45);
+        List<DamageEntry> slice = MenuPages.slice(top, page - 1, Math.max(1, menu.contentSlots().size()));
+        if (top.isEmpty() && !menu.contentSlots().isEmpty()) {
+            add(controls, body, menu.contentSlots().get(0), "none", "BARRIER",
+                    ui.line(player, "menu-stats-damage-empty", Map.of()), List.of(), false);
+            return;
+        }
+        int pageSize = Math.max(1, menu.contentSlots().size());
+        for (int i = 0; i < slice.size() && i < menu.contentSlots().size(); i++) {
+            DamageEntry entry = slice.get(i);
+            int rank = (page - 1) * pageSize + i + 1;
+            String name = entry.name() == null || entry.name().isBlank() ? entry.id().toString().substring(0, 8) : entry.name();
+            Map<String, String> row = Map.of(
+                    "rank", Integer.toString(rank),
+                    "player", name,
+                    "damage", DamageMath.format(entry.hundredths())
+            );
+            String material = switch (rank) {
+                case 1 -> "DIAMOND";
+                case 2 -> "GOLD_INGOT";
+                case 3 -> "IRON_INGOT";
+                default -> "REDSTONE";
+            };
+            add(controls, body, menu.contentSlots().get(i), "none", material,
+                    ui.line(player, "menu-stats-rank", row), List.of(ui.line(player, "menu-stats-damage-rank-lore", row)), rank <= 3);
+        }
+    }
+
     private void settings(List<MenuView.Control> controls, org.bukkit.entity.Player player) {
         UUID id = player.getUniqueId();
         var prefs = ui.preferences();
         state(controls, "scoreboard", prefs.scoreboard(id), player);
         state(controls, "bossbar", prefs.bossbar(id), player);
         state(controls, "actionbar", prefs.actionbar(id), player);
+        state(controls, "damage", prefs.damage(id), player);
         String effect = prefs.effect(id);
         if (!ui.settings().effectCycle().contains(effect)) {
             effect = "totem";
@@ -215,6 +262,7 @@ public final class MenuModel {
         String material = switch (id) {
             case "bossbar" -> "DRAGON_HEAD";
             case "actionbar" -> "NAME_TAG";
+            case "damage" -> "REDSTONE";
             default -> "PAINTING";
         };
         add(controls, List.of(), slot, "toggle:" + id, material,
@@ -275,7 +323,7 @@ public final class MenuModel {
     }
 
     private boolean setting(String id) {
-        return "scoreboard".equals(id) || "bossbar".equals(id) || "actionbar".equals(id) || "effect".equals(id);
+        return "scoreboard".equals(id) || "bossbar".equals(id) || "actionbar".equals(id) || "effect".equals(id) || "damage".equals(id);
     }
 
     private int slotOf(String buttonId) {
@@ -299,7 +347,7 @@ public final class MenuModel {
         return switch (id) {
             case "shop" -> arg == null || arg.isEmpty() || "root".equals(arg) ? 1 : pagesForOffers(arg);
             case "maps" -> MenuPages.count(plugin.getMapManager() == null ? 0 : plugin.getMapManager().mapNames().size(), contentSize("maps"));
-            case "stats" -> 1 + MenuPages.count(plugin.getDataManager() == null ? 0 : plugin.getDataManager().topKills(45).size(), contentSize("stats"));
+            case "stats" -> 1 + killBoardPages() + MenuPages.count(plugin.getDataManager() == null ? 0 : plugin.getDataManager().topDamage(45).size(), contentSize("stats"));
             default -> 1;
         };
     }

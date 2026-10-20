@@ -31,6 +31,18 @@ public interface BuildFFA {
     int streak(UUID player);
 
     /**
+     * Lifetime damage dealt, in health points. Overkill is not included.
+     */
+    double damageDealt(UUID player);
+
+    /**
+     * Lifetime damage taken, in health points.
+     */
+    double damageTaken(UUID player);
+
+    int assists(UUID player);
+
+    /**
      * 1-based kills leaderboard position. Tied players share a rank. {@code 0} when unknown.
      */
     int leaderboardPosition(UUID player);

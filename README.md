@@ -4,7 +4,7 @@ BuildFFA für Minecraft Java Edition. Ein Jar läuft auf Spigot, Paper, Purpur u
 
 A BuildFFA minigame for Minecraft Java Edition. One jar runs on Spigot, Paper, Purpur, and Folia from **1.20** through the current release.
 
-Version **3.6**. Das Plugin ist teilweise KI-unterstützt entstanden. Fehler bitte melden.
+Version **3.7**. Das Plugin ist teilweise KI-unterstützt entstanden. Fehler bitte melden.
 
 **`BFFA01-4.1.jar` nicht aus der Git-Historie oder von einer rohen GitHub-URL laden.** Diese Datei ist ein altes Binary und passt nicht zu diesem Quelltext. Bauen mit `./mvnw verify` aus dem aktuellen Baum (oder ein Release-Asset, das daraus gebaut wurde) und die Prüfsumme prüfen, bevor das Jar auf einen Server kommt.
 
@@ -16,7 +16,9 @@ Release 4.1 hatte `/build` und eine eigene `maps.yml`. Dieser Baum hat beides ni
 - **Ein Menümodell:** `/menu`, `/shop`, `/kit`, `/maps`, `/stats` und `/settings` bauen dieselbe Seite. Java-Spieler bekommen eine Kiste. Floodgate-Bedrock-Spieler bekommen dasselbe Menü als Cumulus-Formular, wenn `integrations.floodgate.forms` an ist.
 - **Kit:** Hotbar in `/kit` anordnen oder im Inventar sortieren und mit `/savekit` speichern.
 - **Shop:** Dauerhafte Upgrades und Einmal-Items. Angezeigte Münzen sind das Guthaben, das auch abgebucht wird: interne Münzen oder, bei `integrations.vault.shop: vault`, das formatierte Vault-Guthaben.
-- **Killstreaks und Stats:** Kills, Tode, K/D, Streaks. `/stats` zeigt den eigenen Stand und die Rangliste.
+- **Killstreaks und Stats:** Kills, Tode, K/D, Streaks, Schaden verursacht und erhalten (Lebenszeit und aktuelle Serie), Assists. `/stats` zeigt den eigenen Stand, die Kill-Rangliste und die Schadensrangliste.
+- **Schaden im Kampf:** Schwebende Trefferzahlen am Treffer (TextDisplay, sonst ein Rüstungsständer), Actionbar mit Treffer, Combo und restlicher Gesundheit, Kritik- und Sweep-Farben, Zusammenfassung nach Kill oder Tod. Global über `damage.enabled` und `presentation.yml`, je Spieler unter `/settings`. Schnelle Treffer teilen sich eine Zahl und verschwinden von allein.
+- **Mehrere Server:** Optional. Ein einzelner Server braucht keine neuen Schlüssel. Mit `network.enabled` und MySQL/MariaDB teilen sich die Server Stats, Münzen, Kits und Anzeige-Einstellungen. Redis oder der Kanal `bffa:net` verteilt Streaks und lädt Ranglisten neu.
 - **Aussehen:** Palette und Icons in `theme.yml`. Scoreboard, Tab, Bossbar, Actionbar, Titel, Kill-Effekte, Chat und Hologramme nutzen dieselben Tokens (`%color_primary%`, `%icon_map%`).
 - **Scoreboard:** Zeilen aus `scoreboard.yml`. Lokale Tokens, `%bffa_*%`, PlaceholderAPI und MiniPlaceholders werden vor MiniMessage eingesetzt. Lange Verläufe bleiben auf Paper erhalten und werden auf Spigot auf das 64-Zeichen-Limit der Teams gekürzt.
 - **Sprache:** MiniMessage in `lang/en.yml` und `lang/de.yml`. `language` in `config.yml`.
@@ -27,14 +29,14 @@ Release 4.1 hatte `/build` und eine eigene `maps.yml`. Dieser Baum hat beides ni
 
 | Befehl | Beschreibung | Permission |
 | :--- | :--- | :--- |
-| `/bffa` | Admin: `setmap`, `swapmap`, `addcoins`, `removecoins`, `resetstats`, `reload`. | `bffa.admin` (oder der passende Unterknoten) |
+| `/bffa` | Admin: `setmap`, `swapmap`, `addcoins`, `removecoins`, `resetstats`, `reload`, `network`. | `bffa.admin` (oder der passende Unterknoten) |
 | `/menu` | Hub für Shop, Kit, Karten, Stats und Einstellungen. | `bffa.menu` |
 | `/kit` | Kit-Editor. | `bffa.kit` |
 | `/savekit` | Aktuelle Hotbar speichern. | `bffa.savekit` |
 | `/stats` | Eigene Stats und Rangliste. | `bffa.stats` |
 | `/shop` | Münz-Shop. | `bffa.shop` |
 | `/maps` | Nächste Karte wählen. | `bffa.maps` |
-| `/settings` | Sidebar, Bossbar, Actionbar und Kill-Effekt. | `bffa.settings` |
+| `/settings` | Sidebar, Bossbar, Actionbar, Trefferzahlen und Kill-Effekt. | `bffa.settings` |
 
 `bffa.admin` gilt standardmäßig für Operatoren und enthält `bffa.admin.setmap`, `bffa.admin.swapmap`, `bffa.admin.coins`, `bffa.admin.stats` und `bffa.admin.reload`. Die Spielerbefehle gelten für alle.
 
@@ -72,17 +74,37 @@ Eine vorhandene `config.yml` ohne `config-version` wird nach `config.yml.v1.bak`
 
 | Datei | Inhalt |
 | :--- | :--- |
-| `config.yml` | Sprache, Speicher, Hologramme, Integrationen, Kartenwechsel, Kit, Spawns. `config-version` bleibt `2`. |
+| `config.yml` | Sprache, Speicher, Schaden, Netzwerk, Hologramme, Integrationen, Kartenwechsel, Kit, Spawns. `config-version` bleibt `2`. |
 | `theme.yml` | Palette (`primary`, `secondary`, `accent`, `success`, `danger`, `muted`, `soft`, `warm`) und Icons. |
 | `menus.yml` | Slots, Materialien und Aktionen der Kistenmenüs. |
-| `presentation.yml` | Tabliste, Bossbar, Actionbar, Titel, Sounds, Kill-Effekte, Willkommen beim ersten Join. |
+| `presentation.yml` | Tabliste, Bossbar, Actionbar, Titel, Sounds, Kill-Effekte, Trefferzahlen, Willkommen beim ersten Join. |
 | `scoreboard.yml` | Titel und Zeilen der Sidebar. |
 | `lang/en.yml`, `lang/de.yml` | MiniMessage oder `&`-Farbcodes. Platzhalter wie `%player%`. |
-| `preferences.yml` | Sidebar, Bossbar, Actionbar und Kill-Effekt je Spieler. Wird zur Laufzeit geschrieben, nicht im Jar mitgeliefert. |
+| `preferences.yml` | Sidebar, Bossbar, Actionbar, Trefferzahlen und Kill-Effekt je Spieler. Wird zur Laufzeit geschrieben, nicht im Jar mitgeliefert. Im Netzwerk gewinnt die SQL-Zeile beim Join. |
 | `data.yml` | Standard-Statistik. Wird nicht geladen, wenn sie nicht lesbar ist, damit die Datei nicht überschrieben wird. |
 | `plugins/BFFA01/drivers/` | Optionaler MySQL- (`com.mysql.cj.jdbc.Driver`) oder MariaDB-Treiber (`org.mariadb.jdbc.Driver`). SQLite braucht keinen. |
 
 `/bffa reload` lädt Config, Sprache, Theme, Menüs, Präsentation, Scoreboard, Kartenliste, Integrationen und den Speicher neu. Der aktuelle Speicher wird zuerst geschrieben, danach öffnet das Plugin das in `storage` genannte Ziel. Schlägt das Öffnen fehl, bleibt der laufende Speicher. Ein Wechsel von `storage.type` kopiert keine Zeilen. Offene BuildFFA-Menüs werden geschlossen. Die Kartenrotation läuft weiter; nur das Intervall wird begrenzt (mindestens 10 Sekunden), und eine noch nie gestartete Rotation startet, wenn nach dem Reload Karten vorhanden sind.
+
+### Schaden
+
+`damage.enabled` schaltet die live Anzeige ein (Standard an). Die Statistik wird trotzdem geschrieben. `damage.assist-seconds` (Standard 12) ist das Fenster für Assists und die Todesaufstellung. `damage.assist-minimum` (Standard 2.0 Lebenspunkte) ist die Untergrenze für einen Assist. Gezählt wird der tatsächlich abgezogene Lebenspunkt plus verbrauchte Absorption. Schaden über die restliche Gesundheit hinaus zählt nicht. Fallschaden bleibt abgebrochen. Void unter der Karten-Todeshöhe geht an den letzten Angreifer im Fenster.
+
+`presentation.yml` unter `damage` schaltet Indikator, Actionbar und Chat-Zusammenfassung einzeln. `ticks` ist die Lebensdauer, `merge-millis` fasst Treffer zusammen. `%icon_hit%` kommt aus `theme.yml`.
+
+### Mehrere Server
+
+Ein Server mit `network.enabled: false` ändert sich nicht. Für ein Netzwerk:
+
+1. Auf jedem Server `storage.type: mysql` mit derselben Datenbank. Den MariaDB- oder MySQL-Treiber nach `plugins/BFFA01/drivers/` legen und neu starten.
+2. `network.enabled: true` und eine eigene `network.server-id` (Buchstaben, Ziffern, `_`, `-`, höchstens 32 Zeichen). Bleibt sie leer, merkt sich das Plugin eine Id in `plugins/BFFA01/server-id.txt` und warnt.
+3. Optional Redis: `network.redis.host`, `port`, `password`, `channel` (Standard `bffa`). Zwei Sockets, eines zum Senden und eines zum Empfangen. Streak-Meilensteine und Rangliste gehen darüber.
+4. `network.messenger` (Standard an) sendet dieselben kurzen Zeilen auf dem Plugin-Kanal `bffa:net`, sobald ein Spieler online ist. Der Proxy muss den Kanal weiterleiten. Redis braucht das nicht.
+5. `network.leaderboard-seconds` lädt fremde Zeilen nach. Ein Spieler wird beim Join neu gelesen und beim Verlassen geschrieben und freigegeben, damit der nächste Server keine alte Zeile überschreibt.
+
+MySQL-Schreibvorgänge tragen auch ohne `network.enabled` eine kurze Lease, damit zwei Prozesse dieselbe Zeile nicht gleichzeitig überschreiben. YAML und SQLite bleiben lokal.
+
+`/bffa network` zeigt Id, Speicher und ob Redis verbunden ist.
 
 Hologramme bleiben aus, bis `holograms.enabled` wahr ist. `holograms.backend` ist `auto`, `decentholograms`, `fancyholograms` oder `armorstand`. `auto` nimmt DecentHolograms, dann FancyHolograms, sonst Rüstungsständer am aktuellen Spawn. Die Zeilen laufen durch dasselbe Theme wie Scoreboard und Sprache.
 
@@ -107,15 +129,15 @@ Jeder Hook hat `integrations.<name>.enabled`. `false` schaltet den Hook aus, auc
 
 Lokal in Scoreboard, Tab, Bossbar, Actionbar und Titeln, bevor Platzhalter-Plugins laufen:
 
-`%map%`, `%time%`, `%kills%`, `%deaths%`, `%kd%`, `%streak%`, `%coins%`, `%players%`.
+`%map%`, `%time%`, `%kills%`, `%deaths%`, `%kd%`, `%streak%`, `%coins%`, `%players%`, `%damage%`, `%damage_taken%`, `%assists%`.
 
 Theme, überall dort, wo eine Zeile durch die Anzeige läuft, inklusive Sprachdatei und Hologramm:
 
-`%color_primary%`, `%color_secondary%`, `%color_accent%`, `%color_success%`, `%color_danger%`, `%color_muted%`, `%color_soft%`, `%color_warm%`, sowie `%icon_map%`, `%icon_kills%`, `%icon_deaths%`, `%icon_coins%`, `%icon_streak%`, `%icon_time%`, `%icon_players%`, `%icon_shop%`, `%icon_kit%`, `%icon_stats%`, `%icon_settings%`, `%icon_vote%`.
+`%color_primary%`, `%color_secondary%`, `%color_accent%`, `%color_success%`, `%color_danger%`, `%color_muted%`, `%color_soft%`, `%color_warm%`, sowie `%icon_map%`, `%icon_kills%`, `%icon_deaths%`, `%icon_coins%`, `%icon_streak%`, `%icon_time%`, `%icon_players%`, `%icon_shop%`, `%icon_kit%`, `%icon_stats%`, `%icon_settings%`, `%icon_vote%`, `%icon_hit%`.
 
 PlaceholderAPI hängt die `%` um `bffa_<parameter>`:
 
-`kills`, `deaths`, `kd`, `coins`, `streak`, `rank`, `map`, `kit`, `prefix`, `bedrock`, `protocol`, `client`, `vault`, `online`, `kills_<name>`, `deaths_<name>`, `kd_<name>`, `coins_<name>`, `streak_<name>`, `rank_<name>`, `top_name_<n>`, `top_kills_<n>`, `top_kd_<n>`.
+`kills`, `deaths`, `kd`, `coins`, `streak`, `rank`, `map`, `kit`, `prefix`, `bedrock`, `protocol`, `client`, `vault`, `online`, `damage`, `damage_taken`, `life_damage`, `life_taken`, `assists`, `kills_<name>`, `deaths_<name>`, `kd_<name>`, `coins_<name>`, `streak_<name>`, `rank_<name>`, `damage_<name>`, `damage_taken_<name>`, `top_name_<n>`, `top_kills_<n>`, `top_kd_<n>`, `top_damage_<n>`, `top_damage_name_<n>`.
 
 MiniPlaceholders nutzt dieselben Namen: `<bffa_kills>`, `<bffa_map>`, `<bffa_top_name:1>`.
 
@@ -123,16 +145,24 @@ Eingefügte Werte (Namen, Karte, Kit, Client) können keine MiniMessage-Tags öf
 
 ## Entwickler-API
 
-Andere Plugins holen `infinode.org.example.bFFA01.api.BuildFFA` über `BuildFFAProvider.get()` oder den Bukkit-Service-Manager. Das Interface liefert aktuelle Karte und Spawn, Kills, Tode, Münzen, K/D, Streak, Rang, Kit-Name, Bedrock-Erkennung, ViaVersion-Protokoll, Prefix und die aktiven Integrations-IDs.
+Andere Plugins holen `infinode.org.example.bFFA01.api.BuildFFA` über `BuildFFAProvider.get()` oder den Bukkit-Service-Manager. Das Interface liefert aktuelle Karte und Spawn, Kills, Tode, Münzen, K/D, Streak, verursachten und erhaltenen Schaden, Assists, Rang, Kit-Name, Bedrock-Erkennung, ViaVersion-Protokoll, Prefix und die aktiven Integrations-IDs.
 
 Diese Events sind nicht abbrechbar. Die Stats sind dann schon geschrieben:
 
-- `BuildFFAKillEvent`
-- `BuildFFADeathEvent`
+- `BuildFFAKillEvent` (`getVictim()` ist null, wenn das Opfer schon offline ist; Name, Schaden und Assists sind Schnappschüsse)
+- `BuildFFADeathEvent` (Killer-Name und Schadensaufstellung, ohne den Killer-Thread zu brauchen)
 - `BuildFFAStreakEvent` (auch eine gebrochene Streak)
 - `BuildFFAMapChangeEvent`
 - `BuildFFAPurchaseEvent`
 - `BuildFFAReloadEvent` (`isStorageReconnected()` sagt, ob der Speicherwechsel geklappt hat)
+
+## Damage and multi-server (English)
+
+Damage dealt and taken is stored in hundredths of a health point, for the whole lifetime and for the current life. A hit counts health actually removed plus absorption consumed. Overkill is dropped. Void below the map death height is credited to the last attacker inside `damage.assist-seconds` (default 12). Assists are other players in that window who dealt at least `damage.assist-minimum` (default 2.0).
+
+Live numbers use a TextDisplay when the server has one, otherwise a marker armor stand tagged `bffa_damage`. They expire, merge hits inside `damage.merge-millis`, and stay capped at four per victim. The action bar shows the hit, the running total on that target, and remaining health. Crits and sweep attacks use their own theme lines. A short summary is sent after a kill or death. Turn the whole display off with `damage.enabled: false`, individual channels under `presentation.yml` `damage:`, or per player in `/settings`.
+
+One server needs no new config: `network.enabled` defaults to false. For several servers behind a proxy, set `storage.type: mysql` to the same database, `network.enabled: true`, and a distinct `network.server-id` on each machine. Optional Redis (`network.redis.host`) publishes streak milestones and leaderboard refreshes. `network.messenger` also sends them on plugin channel `bffa:net` when the proxy forwards that channel. Players are reloaded on join and saved on quit so a server switch does not lose the row. `/bffa network` prints the id, storage, and Redis state.
 
 ## Bauen
 
@@ -144,7 +174,7 @@ Das Compiler-Ziel ist Java 17. Ein JDK 17 oder neuer kann bauen.
 ./mvnw verify
 ```
 
-Das Plugin-Jar ist `target/BFFA01-<version>.jar`. Die Version steht in `pom.xml` (aktuell 3.6). `target/` ist gitignored. Adventure wird geshadet und verschoben. SQLite-JDBC liegt neben den Plugin-Klassen. PlaceholderAPI-Stubs werden nicht ins Jar gepackt.
+Das Plugin-Jar ist `target/BFFA01-<version>.jar`. Die Version steht in `pom.xml` (aktuell 3.7). `target/` ist gitignored. Adventure wird geshadet und verschoben. SQLite-JDBC liegt neben den Plugin-Klassen. PlaceholderAPI-Stubs werden nicht ins Jar gepackt.
 
 Die Paper-API-Abhängigkeit ist der feste Build `1.20.4-R0.1-20241030.192207-176`. Vertrauenswürdige Maven-Resolver-Prüfsummen in `.mvn/` decken jedes aufgelöste Artefakt ab, und der Build prüft die SHA-512 dieses Jars.
 

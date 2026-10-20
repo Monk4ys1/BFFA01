@@ -14,6 +14,13 @@ public final class PlayerRecord {
     private int kills;
     private int deaths;
     private int coins;
+    private int assists;
+    private int streak;
+    private long damageDealt;
+    private long damageTaken;
+    private long lifeDealt;
+    private long lifeTaken;
+    private String prefs = "";
     private final LinkedHashSet<String> upgrades = new LinkedHashSet<>();
     private final String[] layout = new String[9];
 
@@ -75,15 +82,98 @@ public final class PlayerRecord {
         return true;
     }
 
+    public synchronized int assists() {
+        return assists;
+    }
+
+    public synchronized void addAssist() {
+        if (assists < Integer.MAX_VALUE) {
+            assists++;
+        }
+    }
+
+    public synchronized int streak() {
+        return streak;
+    }
+
+    public synchronized void streak(int streak) {
+        this.streak = Math.max(0, streak);
+    }
+
+    public synchronized long damageDealt() {
+        return damageDealt;
+    }
+
+    public synchronized long damageTaken() {
+        return damageTaken;
+    }
+
+    public synchronized long lifeDealt() {
+        return lifeDealt;
+    }
+
+    public synchronized long lifeTaken() {
+        return lifeTaken;
+    }
+
+    public synchronized void addDealt(long hundredths) {
+        if (hundredths <= 0) {
+            return;
+        }
+        damageDealt = saturate(damageDealt, hundredths);
+        lifeDealt = saturate(lifeDealt, hundredths);
+    }
+
+    public synchronized void addTaken(long hundredths) {
+        if (hundredths <= 0) {
+            return;
+        }
+        damageTaken = saturate(damageTaken, hundredths);
+        lifeTaken = saturate(lifeTaken, hundredths);
+    }
+
+    public synchronized void resetLife() {
+        lifeDealt = 0;
+        lifeTaken = 0;
+    }
+
+    public synchronized String prefs() {
+        return prefs;
+    }
+
+    public synchronized void prefs(String prefs) {
+        this.prefs = prefs == null ? "" : prefs;
+    }
+
     public synchronized void resetStats() {
         kills = 0;
         deaths = 0;
+        assists = 0;
+        streak = 0;
+        damageDealt = 0;
+        damageTaken = 0;
+        lifeDealt = 0;
+        lifeTaken = 0;
     }
 
     synchronized void loadCounts(int kills, int deaths, int coins) {
         this.kills = Math.max(0, kills);
         this.deaths = Math.max(0, deaths);
         this.coins = Math.max(0, coins);
+    }
+
+    synchronized void loadCombat(long damageDealt, long damageTaken, long lifeDealt, long lifeTaken, int assists, int streak) {
+        this.damageDealt = Math.max(0L, damageDealt);
+        this.damageTaken = Math.max(0L, damageTaken);
+        this.lifeDealt = Math.max(0L, lifeDealt);
+        this.lifeTaken = Math.max(0L, lifeTaken);
+        this.assists = Math.max(0, assists);
+        this.streak = Math.max(0, streak);
+    }
+
+    private static long saturate(long current, long add) {
+        long updated = current + add;
+        return updated < current ? Long.MAX_VALUE : updated;
     }
 
     public synchronized boolean hasUpgrade(String upgrade) {
@@ -116,6 +206,13 @@ public final class PlayerRecord {
         copy.kills = kills;
         copy.deaths = deaths;
         copy.coins = coins;
+        copy.assists = assists;
+        copy.streak = streak;
+        copy.damageDealt = damageDealt;
+        copy.damageTaken = damageTaken;
+        copy.lifeDealt = lifeDealt;
+        copy.lifeTaken = lifeTaken;
+        copy.prefs = prefs;
         copy.upgrades.addAll(upgrades);
         System.arraycopy(layout, 0, copy.layout, 0, layout.length);
         return copy;

@@ -86,6 +86,29 @@ integrations:
     streak-message: "%player% reached a %streak% killstreak"
     map-message: "Map changed to %map%"
 
+# Damage dealt and taken. Assists count other players inside the window
+# who dealt at least assist-minimum health. Live numbers follow presentation.yml
+# and each player's settings toggle. Set enabled to false to hide them.
+damage:
+  enabled: true
+  assist-seconds: 12
+  assist-minimum: 2.0
+
+# Several BuildFFA servers behind one proxy. Leave enabled false for a single server.
+# Shared stats need storage.type mysql. Set a different server-id on each server.
+# Redis is optional and carries streak broadcasts plus leaderboard refreshes.
+# network.messenger also sends them on the bffa:net plugin channel when a proxy forwards it.
+network:
+  enabled: false
+  server-id: ""
+  leaderboard-seconds: 30
+  messenger: true
+  redis:
+    host: ""
+    port: 6379
+    password: ""
+    channel: bffa
+
 # The time in seconds between map swaps
 map-swap-interval: 600
 

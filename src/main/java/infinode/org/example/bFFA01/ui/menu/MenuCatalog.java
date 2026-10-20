@@ -17,7 +17,7 @@ public final class MenuCatalog {
 
     private static final Pattern ACTION = Pattern.compile(
             "none|back|close|refresh|page0|page:next|page:prev|open:[a-z0-9_-]{1,24}(?::[a-z0-9_-]{1,24})?|"
-                    + "toggle:scoreboard|toggle:bossbar|toggle:actionbar|cycle:effect|kit:save|kit:reset");
+                    + "toggle:scoreboard|toggle:bossbar|toggle:actionbar|toggle:damage|cycle:effect|kit:save|kit:reset|page:damage");
     private static final Pattern KEY = Pattern.compile("[A-Za-z0-9_.-]{1,48}");
     private static final Pattern MATERIAL = Pattern.compile("[A-Z0-9_]{1,64}");
     private static final Pattern ID = Pattern.compile("[a-z0-9_-]{1,32}");

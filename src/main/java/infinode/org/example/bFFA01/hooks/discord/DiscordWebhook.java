@@ -1,6 +1,8 @@
 package infinode.org.example.bFFA01.hooks.discord;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.api.DamageCredit;
+import infinode.org.example.bFFA01.combat.DamageMath;
 import infinode.org.example.bFFA01.hooks.IntegrationSettings;
 import infinode.org.example.bFFA01.hooks.WebhookPublisher;
 import infinode.org.example.bFFA01.hooks.json.Json;
@@ -10,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,15 +41,32 @@ public final class DiscordWebhook implements WebhookPublisher {
 
     @Override
     public void kill(String killer, String victim, int streak) {
+        kill(killer, victim, streak, 0.0, List.of());
+    }
+
+    @Override
+    public void kill(String killer, String victim, int streak, double damage, List<DamageCredit> assists) {
         IntegrationSettings.Discord settings = settings();
         if (!settings.kills()) {
             return;
         }
-        post("Kill", fill(settings.killMessage(), Map.of(
+        String template = settings.killMessage();
+        String amount = DamageMath.format(Math.round(Math.max(0.0, damage) * 100.0));
+        String assistText = assistsText(assists);
+        String text = fill(template, Map.of(
                 "killer", clean(killer),
                 "victim", clean(victim),
-                "streak", Integer.toString(streak)
-        )), 0x57F287, false);
+                "streak", Integer.toString(streak),
+                "damage", amount,
+                "assists", assistText
+        ));
+        if (damage > 0 && (template == null || !template.contains("%damage%"))) {
+            text = text + " (" + amount + " damage)";
+        }
+        if (!assistText.isEmpty() && (template == null || !template.contains("%assists%"))) {
+            text = text + " assists: " + assistText;
+        }
+        post("Kill", text, 0x57F287, false);
     }
 
     @Override
@@ -152,6 +172,25 @@ public final class DiscordWebhook implements WebhookPublisher {
             window = new SendWindow(limit, 60_000L);
         }
         return window;
+    }
+
+    private static String assistsText(List<DamageCredit> assists) {
+        if (assists == null || assists.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (DamageCredit credit : assists) {
+            if (shown == 4) {
+                break;
+            }
+            if (shown > 0) {
+                out.append(", ");
+            }
+            shown++;
+            out.append(clean(credit.name())).append(' ').append(DamageMath.format(Math.round(credit.damage() * 100.0)));
+        }
+        return out.toString();
     }
 
     static String fill(String template, Map<String, String> values) {

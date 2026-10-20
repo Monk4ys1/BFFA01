@@ -6,7 +6,7 @@
 
     <groupId>infinode.org.example</groupId>
     <artifactId>BFFA01</artifactId>
-    <version>3.6</version>
+    <version>3.7</version>
     <packaging>jar</packaging>
 
     <name>BFFA01</name>

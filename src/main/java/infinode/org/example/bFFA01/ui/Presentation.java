@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.ui;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.combat.DamageMath;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
 import infinode.org.example.bFFA01.compat.Sounds;
 import infinode.org.example.bFFA01.compat.TaskRunner;
@@ -68,6 +69,11 @@ public final class Presentation {
                 tasks.runAsync(task);
             }
         });
+        this.preferences.onChanged(id -> {
+            if (id != null && plugin.getDataManager() != null) {
+                plugin.getDataManager().storedPrefs(id, preferences.export(id));
+            }
+        });
         reload();
         ServerScheduler scheduler = plugin.scheduler();
         if (scheduler != null) {
@@ -101,6 +107,23 @@ public final class Presentation {
 
     public MapVotes votes() {
         return votes;
+    }
+
+    public void importStoredPrefs(Player player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return;
+        }
+        String stored = plugin.getDataManager().storedPrefs(player.getUniqueId());
+        if (stored != null && !stored.isBlank()) {
+            preferences.applyStored(player.getUniqueId(), stored);
+        }
+    }
+
+    public void exportPrefs(Player player) {
+        if (player == null || plugin.getDataManager() == null) {
+            return;
+        }
+        plugin.getDataManager().storedPrefs(player.getUniqueId(), preferences.export(player.getUniqueId()));
     }
 
     public void reload() {
@@ -312,6 +335,11 @@ public final class Presentation {
         values.put("time", ClockText.mmss(secondsLeft()));
         values.put("seconds", Integer.toString(secondsLeft()));
         values.put("players", Integer.toString(onlineCount()));
+        values.put("damage", DamageMath.format(plugin.getDataManager() == null ? 0 : plugin.getDataManager().damageDealt(id)));
+        values.put("damage_taken", DamageMath.format(plugin.getDataManager() == null ? 0 : plugin.getDataManager().damageTaken(id)));
+        values.put("life_damage", DamageMath.format(plugin.getDataManager() == null ? 0 : plugin.getDataManager().lifeDealt(id)));
+        values.put("life_taken", DamageMath.format(plugin.getDataManager() == null ? 0 : plugin.getDataManager().lifeTaken(id)));
+        values.put("assists", Integer.toString(plugin.getDataManager() == null ? 0 : plugin.getDataManager().assists(id)));
         Map<String, String> frozen = Map.copyOf(values);
         stamps.put(id, new Stamp(System.currentTimeMillis(), frozen));
         return frozen;
