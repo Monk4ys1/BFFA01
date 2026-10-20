@@ -1,4 +1,117 @@
-# BuildFFA Configuration
+# BuildFFA configuration
+# config-version is migrated automatically. Do not delete it.
+config-version: 2
+
+# Language file in plugins/BFFA01/lang/. Ships with en and de.
+# Any messages: keys still present in this file override the language file.
+language: en
+
+# yaml (default), sqlite, or mysql.
+# SQLite is bundled. MySQL needs mariadb-java-client.jar or mysql-connector-j.jar
+# in plugins/BFFA01/drivers/, then a restart.
+storage:
+  type: yaml
+  sqlite:
+    file: data.db
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: bffa
+    username: bffa
+    password: ""
+    parameters: "useSSL=false&allowPublicKeyRetrieval=true"
+
+# Armor-stand leaderboard above the current spawn. Leave false unless you want it.
+# backend: auto (DecentHolograms, then FancyHolograms, then armor stands), decentholograms, fancyholograms, armorstand
+holograms:
+  enabled: false
+  backend: auto
+  id: bffa-top
+
+# Soft dependencies. The plugin loads when none of these are installed.
+# enabled: false turns a hook off even if that plugin is on the server.
+integrations:
+  placeholderapi:
+    enabled: true
+  vault:
+    enabled: true
+    # Shop spends internal coins, or the Vault economy.
+    shop: internal
+    # Kill reward: internal coins, vault, or both.
+    # kill-amount is the coins paid per kill. 0 pays nothing.
+    # A config that does not contain this key also pays nothing.
+    kill-reward: internal
+    kill-amount: 5
+  luckperms:
+    enabled: true
+  worldguard:
+    enabled: true
+    # State flags bffa-build and bffa-pvp, default allow. Registered on load.
+    flags: true
+    # Optional region id. maps.<name>.region overrides this for that arena.
+    arena-region: ""
+    deny-build-outside: false
+    deny-pvp-outside: false
+  decentholograms:
+    enabled: true
+  fancyholograms:
+    enabled: true
+  geyser:
+    enabled: true
+  floodgate:
+    enabled: true
+    # Bedrock players get forms for /shop and /stats. Java players keep the chest GUI.
+    forms: true
+  viaversion:
+    enabled: true
+  miniplaceholders:
+    enabled: true
+  metrics:
+    enabled: true
+    # bStats plugin id. 0 does not send anything. plugins/bStats/config.yml can still opt out.
+    plugin-id: 0
+  discord:
+    enabled: false
+    # Only https://discord.com/api/webhooks/... (discordapp.com, canary, and ptb too).
+    url: ""
+    username: BuildFFA
+    kills: true
+    deaths: false
+    streaks: true
+    milestones: [5, 10, 15, 20, 25, 50]
+    map-switch: false
+    rate-limit: 30
+    kill-message: "%killer% killed %victim% (streak %streak%)"
+    death-message: "%player% died"
+    streak-message: "%player% reached a %streak% killstreak"
+    map-message: "Map changed to %map%"
+
+# Damage dealt and taken. Assists count other players inside the window
+# who dealt at least assist-minimum health. Live numbers follow presentation.yml
+# and each player's settings toggle. Set enabled to false to hide them.
+damage:
+  enabled: true
+  assist-seconds: 12
+  assist-minimum: 2.0
+
+# Identical instances. auto joins the cluster when storage.type is mysql or mariadb.
+# Identity is BFFA_SERVER_ID, then POD_NAME or HOSTNAME when that name is unique, otherwise a random id.
+# server-id is ignored. network.secret or BFFA_NETWORK_SECRET overrides the shared secret on this process.
+# With both blank, the first MySQL instance stores one secret and the others reuse it. Unsigned frames are ignored.
+network:
+  # false stays local. true always joins the cluster.
+  # auto joins when storage.type is mysql or mariadb, so one image can scale without a per-pod edit.
+  enabled: auto
+  # Ignored. Identity comes from BFFA_SERVER_ID, then POD_NAME or HOSTNAME when that name is unique, otherwise a random id per boot.
+  server-id: ""
+  secret: ""
+  leaderboard-seconds: 30
+  messenger: true
+  redis:
+    host: ""
+    port: 6379
+    password: ""
+    channel: bffa
 
 # The time in seconds between map swaps
 map-swap-interval: 600
@@ -43,19 +156,19 @@ maps:
     death-y-level: 162
     safezone-y-level: 232
 
-# Kit configuration
+# Kit configuration. Enchantment names accept both modern ids (sharpness) and legacy ids (DAMAGE_ALL).
 kit:
   inventory:
     0:
       material: IRON_SWORD
       amount: 1
       enchantments:
-        SHARPNESS: 1
+        sharpness: 1
     1:
       material: STICK
       amount: 1
       enchantments:
-        KNOCKBACK: 1
+        knockback: 1
     2:
       material: SANDSTONE
       amount: 64
@@ -74,15 +187,3 @@ kit:
       material: IRON_LEGGINGS
     boots:
       material: IRON_BOOTS
-
-messages:
-  prefix: "&8[&bBuildFFA&8] "
-  join: "&8[&a+&8] &7%player%"
-  quit: "&8[&c-&8] &7%player%"
-  map-swapped: "&7The map has been changed to &e%map%&7!"
-  map-swap-warning: "&7The map will change in &e%seconds% &7seconds!"
-  player-killed: "&c%player% &7was killed by &a%killer%&7."
-  player-died: "&c%player% &7died."
-  command-usage: "&cUsage: /bffa <setmap> <mapname>"
-  no-permission: "&cYou do not have permission to do that."
-  map-set: "&aSpawn location for map &e%map% &aset successfully."

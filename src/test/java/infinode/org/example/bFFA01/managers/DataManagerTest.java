@@ -1,6 +1,8 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.storage.KillEntry;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,6 +18,8 @@ import java.util.logging.Logger;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -92,6 +96,98 @@ class DataManagerTest {
 
         assertTrue(data.isWritable());
         assertTrue(Files.isRegularFile(dataFolder.resolve("data.yml")));
+        data.flush();
+    }
+
+    @Test
+    void reloadKeepsYamlStats() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        BFFA01 plugin = plugin(dataFolder);
+        DataManager data = new DataManager(plugin);
+        UUID player = UUID.randomUUID();
+        data.addKill(player);
+
+        assertTrue(data.reconnect());
+        assertEquals("yaml", data.storageLabel());
+        assertEquals(1, data.getKills(player));
+    }
+
+    @Test
+    void reloadReopensSqlite() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", "players.db");
+        BFFA01 plugin = plugin(dataFolder);
+        when(plugin.getConfig()).thenReturn(config);
+
+        DataManager data = new DataManager(plugin);
+        UUID player = UUID.randomUUID();
+        data.addKill(player);
+        data.addKill(player);
+
+        assertTrue(data.reconnect());
+        assertEquals("sqlite", data.storageLabel());
+        assertEquals(2, data.getKills(player));
+        data.flush();
+    }
+
+    @Test
+    void leaderboardIsCachedUntilTheOrderChanges() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        DataManager data = new DataManager(plugin(dataFolder));
+        UUID ann = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+        data.rememberName(ann, "Ann");
+        data.rememberName(bob, "Bob");
+        data.addKill(ann);
+        data.addKill(bob);
+        List<KillEntry> first = data.topKills(Integer.MAX_VALUE);
+        assertEquals(ann, first.get(0).id());
+        assertSame(first, data.topKills(Integer.MAX_VALUE));
+        assertEquals(ann, data.topKills(1).get(0).id());
+
+        data.addKill(bob);
+        data.addKill(bob);
+        List<KillEntry> next = data.topKills(2);
+        assertEquals(bob, next.get(0).id());
+        assertEquals("Ann", next.get(1).name());
+    }
+
+    @Test
+    void mysqlBufferKeepsOneId() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        Path buffer = dataFolder.resolve("mysql-buffer.yml");
+        BFFA01 plugin = plugin(dataFolder);
+
+        new YamlPlayerData(plugin, buffer);
+        String first = YamlConfiguration.loadConfiguration(buffer.toFile()).getString("buffer-id");
+        new YamlPlayerData(plugin, buffer);
+
+        assertNotNull(first);
+        assertEquals(36, first.length());
+        assertEquals(first, YamlConfiguration.loadConfiguration(buffer.toFile()).getString("buffer-id"));
+    }
+
+    @Test
+    void sqliteAgreesOnOneClusterSecret() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", "players.db");
+        BFFA01 plugin = plugin(dataFolder);
+        when(plugin.getConfig()).thenReturn(config);
+
+        DataManager data = new DataManager(plugin);
+        String secret = data.sharedSecret();
+
+        assertEquals(64, secret.length());
+        assertEquals(secret, data.sharedSecret());
         data.flush();
     }
 

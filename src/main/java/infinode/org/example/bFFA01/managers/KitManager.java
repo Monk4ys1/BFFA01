@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.compat.Enchantments;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
@@ -25,48 +26,41 @@ public class KitManager {
         PlayerInventory inventory = player.getInventory();
         inventory.clear();
         inventory.setArmorContents(null);
-        
+
         UUID uuid = player.getUniqueId();
 
         ConfigurationSection kitConfig = plugin.getConfig().getConfigurationSection("kit");
-        if (kitConfig == null) return;
+        if (kitConfig == null) {
+            return;
+        }
 
-        // Load configured items
         List<ItemStack> itemsToGive = new ArrayList<>();
         ConfigurationSection invConfig = kitConfig.getConfigurationSection("inventory");
-        
+
         if (invConfig != null) {
             for (String key : invConfig.getKeys(false)) {
                 try {
                     String matName = invConfig.getString(key + ".material", "AIR");
                     int amount = invConfig.getInt(key + ".amount", 1);
                     Material material = Material.matchMaterial(matName);
-                    
+
                     if (material != null) {
                         ItemStack item = new ItemStack(material, amount);
                         ItemMeta meta = item.getItemMeta();
-                        
+
                         if (meta != null) {
-                            // Check for permanent Sharpness upgrade
                             if (material == Material.IRON_SWORD && plugin.getDataManager().hasUpgrade(uuid, "sharpness")) {
-                                meta.addEnchant(Enchantment.SHARPNESS, 1, true);
+                                enchant(meta, "sharpness", 1, true);
                             }
-
-                            // Check for permanent Power upgrade
                             if (material == Material.BOW && plugin.getDataManager().hasUpgrade(uuid, "powerbow")) {
-                                meta.addEnchant(Enchantment.POWER, 1, true);
+                                enchant(meta, "power", 1, true);
                             }
-
-                            // Check for permanent Punch upgrade
                             if (material == Material.BOW && plugin.getDataManager().hasUpgrade(uuid, "punchbow")) {
-                                meta.addEnchant(Enchantment.PUNCH, 1, true);
+                                enchant(meta, "punch", 1, true);
                             }
-
-                            // Check for permanent Knockback 2 Stick
                             if (material == Material.STICK && plugin.getDataManager().hasUpgrade(uuid, "knockback2")) {
-                                meta.addEnchant(Enchantment.KNOCKBACK, 2, true);
+                                enchant(meta, "knockback", 2, true);
                             }
-
                             item.setItemMeta(meta);
                         }
 
@@ -75,18 +69,17 @@ public class KitManager {
                             meta = item.getItemMeta();
                             if (meta != null) {
                                 for (String enchantName : enchants.getKeys(false)) {
-                                    Enchantment enchantment = Enchantment.getByName(enchantName.toUpperCase());
-                                    if (enchantment != null) {
-                                        int level = enchants.getInt(enchantName);
-                                        if (level < 1) {
-                                            continue;
-                                        }
-                                        // Config cannot raise an enchant past its vanilla cap.
-                                        level = Math.min(level, enchantment.getMaxLevel());
-                                        // Don't overwrite if we already applied a stronger upgrade
-                                        if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < level) {
-                                            meta.addEnchant(enchantment, level, false);
-                                        }
+                                    Enchantment enchantment = Enchantments.resolve(enchantName);
+                                    if (enchantment == null) {
+                                        continue;
+                                    }
+                                    int level = enchants.getInt(enchantName);
+                                    if (level < 1) {
+                                        continue;
+                                    }
+                                    level = Math.min(level, enchantment.getMaxLevel());
+                                    if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < level) {
+                                        meta.addEnchant(enchantment, level, false);
                                     }
                                 }
                                 item.setItemMeta(meta);
@@ -94,23 +87,21 @@ public class KitManager {
                         }
                         itemsToGive.add(item);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // A broken kit slot is skipped so the rest of the kit still arrives.
+                }
             }
         }
 
-        // Apply Custom Kit Layout if exists
-        boolean layoutUsed = false;
         for (int i = 0; i < 9; i++) {
             String savedMat = plugin.getDataManager().getKitLayoutItem(uuid, i);
             if (savedMat != null && !savedMat.equals("AIR")) {
                 Material mat = Material.matchMaterial(savedMat);
                 if (mat != null) {
-                    // Find the item in our generated items that matches the saved material
                     for (int j = 0; j < itemsToGive.size(); j++) {
                         if (itemsToGive.get(j).getType() == mat) {
                             inventory.setItem(i, itemsToGive.get(j));
                             itemsToGive.remove(j);
-                            layoutUsed = true;
                             break;
                         }
                     }
@@ -118,12 +109,10 @@ public class KitManager {
             }
         }
 
-        // If they didn't have a layout (or for remaining unmapped items), just dump them in
         for (ItemStack item : itemsToGive) {
             inventory.addItem(item);
         }
 
-        // Give armor
         ConfigurationSection armorConfig = kitConfig.getConfigurationSection("armor");
         if (armorConfig != null) {
             Material helmetMat = Material.matchMaterial(armorConfig.getString("helmet.material", "AIR"));
@@ -136,20 +125,18 @@ public class KitManager {
             ItemStack leggings = leggingsMat != null && leggingsMat != Material.AIR ? new ItemStack(leggingsMat) : null;
             ItemStack boots = bootsMat != null && bootsMat != Material.AIR ? new ItemStack(bootsMat) : null;
 
-            // Check for Protection 1 Chestplate
             if (chestplate != null && plugin.getDataManager().hasUpgrade(uuid, "protection")) {
                 ItemMeta meta = chestplate.getItemMeta();
                 if (meta != null) {
-                    meta.addEnchant(Enchantment.PROTECTION, 1, true);
+                    enchant(meta, "protection", 1, true);
                     chestplate.setItemMeta(meta);
                 }
             }
 
-            // Check for Feather Falling 2 Boots
             if (boots != null && plugin.getDataManager().hasUpgrade(uuid, "featherfalling")) {
                 ItemMeta meta = boots.getItemMeta();
                 if (meta != null) {
-                    meta.addEnchant(Enchantment.FEATHER_FALLING, 2, true);
+                    enchant(meta, "feather_falling", 2, true);
                     boots.setItemMeta(meta);
                 }
             }
@@ -161,5 +148,16 @@ public class KitManager {
         }
 
         player.updateInventory();
+    }
+
+    private static void enchant(ItemMeta meta, String name, int level, boolean ignoreLevel) {
+        Enchantment enchantment = Enchantments.resolve(name);
+        if (enchantment == null || level < 1) {
+            return;
+        }
+        int applied = ignoreLevel ? level : Math.min(level, enchantment.getMaxLevel());
+        if (!meta.hasEnchant(enchantment) || meta.getEnchantLevel(enchantment) < applied) {
+            meta.addEnchant(enchantment, applied, ignoreLevel);
+        }
     }
 }

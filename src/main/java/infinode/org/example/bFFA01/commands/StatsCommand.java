@@ -1,13 +1,19 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
-import org.bukkit.ChatColor;
+import infinode.org.example.bFFA01.combat.DamageMath;
+import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-public class StatsCommand implements CommandExecutor {
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+public class StatsCommand implements CommandExecutor, TabCompleter {
 
     private final BFFA01 plugin;
 
@@ -17,20 +23,38 @@ public class StatsCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) return true;
+        if (CommandAccess.refuse(plugin, sender, "bffa.stats")) {
+            return true;
+        }
 
         Player player = (Player) sender;
+        if (plugin.presentation() != null && plugin.presentation().menus().open(player, "stats")) {
+            return true;
+        }
         int kills = plugin.getDataManager().getKills(player.getUniqueId());
         int deaths = plugin.getDataManager().getDeaths(player.getUniqueId());
         double kd = deaths == 0 ? kills : (double) kills / deaths;
 
-        player.sendMessage(ChatColor.GRAY + "------ " + ChatColor.AQUA + "Your Stats" + ChatColor.GRAY + " ------");
-        player.sendMessage(ChatColor.GRAY + "Kills: " + ChatColor.GREEN + kills);
-        player.sendMessage(ChatColor.GRAY + "Deaths: " + ChatColor.RED + deaths);
-        player.sendMessage(ChatColor.GRAY + "K/D: " + ChatColor.YELLOW + String.format("%.2f", kd));
-        player.sendMessage(ChatColor.GRAY + "Coins: " + ChatColor.GOLD + plugin.getDataManager().getCoins(player.getUniqueId()));
-        player.sendMessage(ChatColor.GRAY + "-------------------------");
+        String ratio = String.format(Locale.US, "%.2f", kd);
+        String coins = Integer.toString(plugin.getDataManager().getCoins(player.getUniqueId()));
+        player.sendMessage(TextLines.render(plugin, "stats-header", "&7------ &bYour Stats &7------", Map.of()));
+        player.sendMessage(TextLines.render(plugin, "stats-kills", "&7Kills: &a%kills%", Map.of("kills", Integer.toString(kills))));
+        player.sendMessage(TextLines.render(plugin, "stats-deaths", "&7Deaths: &c%deaths%", Map.of("deaths", Integer.toString(deaths))));
+        player.sendMessage(TextLines.render(plugin, "stats-kd", "&7K/D: &e%kd%", Map.of("kd", ratio)));
+        player.sendMessage(TextLines.render(plugin, "stats-coins", "&7Coins: &6%coins%", Map.of("coins", coins)));
+        player.sendMessage(TextLines.render(plugin, "stats-damage", "&7Damage: &e%damage%",
+                Map.of("damage", DamageMath.format(plugin.getDataManager().damageDealt(player.getUniqueId())))));
+        player.sendMessage(TextLines.render(plugin, "stats-damage-taken", "&7Taken: &c%damage%",
+                Map.of("damage", DamageMath.format(plugin.getDataManager().damageTaken(player.getUniqueId())))));
+        player.sendMessage(TextLines.render(plugin, "stats-assists", "&7Assists: &b%assists%",
+                Map.of("assists", Integer.toString(plugin.getDataManager().assists(player.getUniqueId())))));
+        player.sendMessage(TextLines.render(plugin, "stats-footer", "&7-------------------------", Map.of()));
 
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        return List.of();
     }
 }

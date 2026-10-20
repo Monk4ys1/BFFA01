@@ -1,5 +1,6 @@
 package infinode.org.example.bFFA01.listeners;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
@@ -17,6 +18,7 @@ public final class TrackedPlacement {
 
     private final Block block;
     private final BlockState replaced;
+    private final Location location;
     private Material expected;
     private int pending;
     private boolean warned;
@@ -41,10 +43,27 @@ public final class TrackedPlacement {
         this.replaced = replaced;
         this.expected = expected;
         this.pending = 1;
+        this.location = capture(block);
     }
 
     public Block block() {
         return block;
+    }
+
+    /** Captured when the block was tracked, so a later restore does not ask the chunk again. */
+    public Location location() {
+        return location;
+    }
+
+    private static Location capture(Block block) {
+        if (block == null) {
+            return null;
+        }
+        try {
+            return block.getLocation();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** Redstone warning belongs to the single live placement, not to an older stacked one. */
@@ -96,6 +115,17 @@ public final class TrackedPlacement {
     /**
      * @return false while a newer place at this position is still pending
      */
+    void forceRestore() {
+        pending = 0;
+        if (group != null && group.members.size() > 1) {
+            restoreGroup();
+            return;
+        }
+        if (stillOurs()) {
+            restore();
+        }
+    }
+
     public boolean release() {
         if (pending > 1) {
             pending--;
@@ -211,13 +241,7 @@ public final class TrackedPlacement {
     static void restoreAll(List<TrackedPlacement> placedBlocks) {
         for (int i = placedBlocks.size() - 1; i >= 0; i--) {
             TrackedPlacement placement = placedBlocks.get(i);
-            if (placement.group != null && placement.group.members.size() > 1) {
-                placement.restoreGroup();
-                continue;
-            }
-            if (placement.stillOurs()) {
-                placement.restore();
-            }
+            placement.forceRestore();
         }
         placedBlocks.clear();
     }

@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -92,6 +93,7 @@ class SaveKitCommandTest {
         Player player = mock(Player.class);
         PlayerInventory inventory = mock(PlayerInventory.class);
         when(player.getUniqueId()).thenReturn(playerId);
+        when(player.hasPermission(anyString())).thenReturn(true);
         when(player.getInventory()).thenReturn(inventory);
         when(inventory.getItem(org.mockito.ArgumentMatchers.anyInt())).thenReturn(null);
         return player;

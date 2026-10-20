@@ -1,17 +1,20 @@
 package infinode.org.example.bFFA01.commands;
 
 import infinode.org.example.bFFA01.BFFA01;
+import infinode.org.example.bFFA01.text.TextLines;
 import infinode.org.example.bFFA01.util.KeyedCooldown;
-import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.List;
+import java.util.Map;
 import java.util.function.LongSupplier;
 
-public class SaveKitCommand implements CommandExecutor {
+public class SaveKitCommand implements CommandExecutor, TabCompleter {
 
     static final long SAVE_COOLDOWN_NANOS = 3_000_000_000L;
 
@@ -31,12 +34,17 @@ public class SaveKitCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) return true;
-
-        Player player = (Player) sender;
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
+            return true;
+        }
+        if (CommandAccess.deny(plugin, player, "bffa.savekit")) {
+            return true;
+        }
         long now = clock.getAsLong();
         if (cooldown.remainingMillis(player.getUniqueId(), now) > 0L) {
-            player.sendMessage(ChatColor.RED + "Please wait a moment before saving your kit again.");
+            player.sendMessage(TextLines.render(plugin, "kit-save-cooldown",
+                    "&cPlease wait a moment before saving your kit again.", Map.of()));
             return true;
         }
 
@@ -46,12 +54,17 @@ public class SaveKitCommand implements CommandExecutor {
         }
 
         if (!plugin.getDataManager().saveKitLayout(player.getUniqueId(), hotbar)) {
-            player.sendMessage(ChatColor.RED + "Could not save your kit layout.");
+            player.sendMessage(TextLines.render(plugin, "kit-save-failed", "&cCould not save your kit layout.", Map.of()));
             return true;
         }
         cooldown.markUsed(player.getUniqueId(), now);
-        player.sendMessage(ChatColor.GREEN + "Your kit layout has been saved!");
+        player.sendMessage(TextLines.render(plugin, "kit-saved", "&aYour kit layout has been saved!", Map.of()));
 
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        return List.of();
     }
 }

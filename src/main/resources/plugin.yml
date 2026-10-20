@@ -1,23 +1,97 @@
 name: BFFA01
 version: '@project.version@'
 main: infinode.org.example.bFFA01.BFFA01
-api-version: '1.21'
+api-version: '1.20'
+folia-supported: true
+description: BuildFFA for Minecraft Java 1.20 through the latest release
+softdepend:
+  - PlaceholderAPI
+  - Vault
+  - LuckPerms
+  - WorldGuard
+  - DecentHolograms
+  - FancyHolograms
+  - Geyser-Spigot
+  - floodgate
+  - ViaVersion
+  - MiniPlaceholders
 commands:
   bffa:
-    description: "Main command for BuildFFA"
+    description: BuildFFA admin command
     usage: "/bffa"
-    permission: "bffa.admin"
+    permission: bffa.admin
   stats:
-    description: "View your stats"
+    description: View your stats
     usage: "/stats"
+    permission: bffa.stats
   kit:
-    description: "Organize your kit"
+    description: Organize your kit
     usage: "/kit"
+    permission: bffa.kit
   savekit:
-    description: "Save your current kit layout"
+    description: Save your current kit layout
     usage: "/savekit"
+    permission: bffa.savekit
+  shop:
+    description: Open the BuildFFA shop
+    usage: "/shop"
+    permission: bffa.shop
+  menu:
+    description: Open the BuildFFA menu
+    usage: "/menu"
+    permission: bffa.menu
+  maps:
+    description: Vote for the next map
+    usage: "/maps"
+    permission: bffa.maps
+  settings:
+    description: Open display and cosmetic settings
+    usage: "/settings"
+    permission: bffa.settings
 
 permissions:
   bffa.admin:
     description: Administer BuildFFA maps, coins, and stats
     default: op
+    children:
+      bffa.admin.setmap: true
+      bffa.admin.swapmap: true
+      bffa.admin.coins: true
+      bffa.admin.stats: true
+      bffa.admin.reload: true
+  bffa.admin.setmap:
+    description: Set a map spawn
+    default: op
+  bffa.admin.swapmap:
+    description: Force a map swap
+    default: op
+  bffa.admin.coins:
+    description: Add or remove coins
+    default: op
+  bffa.admin.stats:
+    description: Reset player stats
+    default: op
+  bffa.admin.reload:
+    description: Reload BuildFFA config and messages
+    default: op
+  bffa.stats:
+    description: View personal stats
+    default: true
+  bffa.kit:
+    description: Open the kit hint
+    default: true
+  bffa.savekit:
+    description: Save a kit layout
+    default: true
+  bffa.shop:
+    description: Open the shop
+    default: true
+  bffa.menu:
+    description: Open the main menu
+    default: true
+  bffa.maps:
+    description: Vote for the next map
+    default: true
+  bffa.settings:
+    description: Change display and kill effects
+    default: true
