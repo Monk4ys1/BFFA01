@@ -36,7 +36,11 @@ public final class BrigadierHook {
         boolean registered = listen(plugin, literalsByLabel);
         lifecycle(plugin, literalsByLabel);
         sync(plugin);
-        return registered;
+        graft(plugin, literalsByLabel);
+        if (!LOGGED.get() && registered) {
+            plugin.getLogger().info("Brigadier suggestions were not attached.");
+        }
+        return LOGGED.get();
     }
 
     static boolean eventPresent() {
@@ -88,6 +92,41 @@ public final class BrigadierHook {
             }
         } catch (Throwable ignored) {
             // 1.20.4 has an empty lifecycle class. The registered-command event covers that build.
+        }
+    }
+
+    /**
+     * Paper 1.21 registers commands during bootstrap, so the registered-command event
+     * can miss a listener installed in onEnable. The live dispatcher still has the node.
+     */
+    private static void graft(Plugin plugin, Map<String, List<String>> literalsByLabel) {
+        if (LOGGED.get()) {
+            return;
+        }
+        try {
+            Object nms = plugin.getServer().getClass().getMethod("getServer").invoke(plugin.getServer());
+            Object holder;
+            try {
+                holder = nms.getClass().getMethod("getCommands").invoke(nms);
+            } catch (NoSuchMethodException ex) {
+                holder = nms.getClass().getField("vanillaCommandDispatcher").get(nms);
+            }
+            Object dispatcher = null;
+            for (Method method : holder.getClass().getMethods()) {
+                if (method.getParameterCount() == 0
+                        && "com.mojang.brigadier.CommandDispatcher".equals(method.getReturnType().getName())) {
+                    dispatcher = method.invoke(holder);
+                    break;
+                }
+            }
+            if (dispatcher == null) {
+                return;
+            }
+            Object root = dispatcher.getClass().getMethod("getRoot").invoke(dispatcher);
+            Object node = root.getClass().getMethod("getChild", String.class).invoke(root, "bffa");
+            addChildren(plugin, node, literalsByLabel.get("bffa"));
+        } catch (Throwable ignored) {
+            // Spigot has no Brigadier dispatcher. Tab completion still works.
         }
     }
 
@@ -161,8 +200,20 @@ public final class BrigadierHook {
         Class<?> literals = Class.forName("com.mojang.brigadier.builder.LiteralArgumentBuilder");
         Method literal = literals.getMethod("literal", String.class);
         boolean added = false;
+        Method getChild = null;
+        for (Method method : node.getClass().getMethods()) {
+            if ("getChild".equals(method.getName()) && method.getParameterCount() == 1
+                    && method.getParameterTypes()[0] == String.class) {
+                getChild = method;
+                break;
+            }
+        }
         if (addChild != null) {
             for (String sub : subs) {
+                if (getChild != null && getChild.invoke(node, sub) != null) {
+                    added = true;
+                    continue;
+                }
                 Object builder = literal.invoke(null, sub);
                 Object built = builder.getClass().getMethod("build").invoke(builder);
                 addChild.invoke(node, built);
