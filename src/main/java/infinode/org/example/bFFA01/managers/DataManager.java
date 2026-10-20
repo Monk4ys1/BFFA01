@@ -5,6 +5,7 @@ import infinode.org.example.bFFA01.compat.TaskRunner;
 import infinode.org.example.bFFA01.config.StorageSettings;
 import infinode.org.example.bFFA01.network.ClusterSnapshot;
 import infinode.org.example.bFFA01.network.NetworkSettings;
+import infinode.org.example.bFFA01.storage.OutageBuffer;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -46,7 +47,8 @@ public class DataManager {
         if (settings.type() != StorageSettings.Type.YAML) {
             try {
                 plugin.getLogger().info("Opening " + settings.type().name().toLowerCase() + " player storage.");
-                PlayerData opened = new JdbcPlayerData(plugin, settings);
+                JdbcPlayerData opened = new JdbcPlayerData(plugin, settings);
+                opened.onOutage(this::noteOutage);
                 storageLabel = settings.type().name().toLowerCase(java.util.Locale.ROOT);
                 pendingSql = null;
                 cluster = opened.clusterView();
@@ -141,6 +143,17 @@ public class DataManager {
         }
     }
 
+    void noteOutage() {
+        synchronized (gate) {
+            if (pendingSql != null) {
+                return;
+            }
+            if (storageLabel.startsWith("mysql")) {
+                storageLabel = "mysql-pending";
+            }
+        }
+    }
+
     public String storageLabel() {
         synchronized (gate) {
             return storageLabel;
@@ -167,6 +180,10 @@ public class DataManager {
                     ClusterSnapshot snapshot = data.heartbeat(Math.max(0, players));
                     if (snapshot != null) {
                         cluster = snapshot;
+                        if (data instanceof JdbcPlayerData && Files.exists(bufferPath())) {
+                            foldBuffer(data);
+                            storageLabel = "mysql";
+                        }
                     }
                 } catch (RuntimeException ex) {
                     plugin.getLogger().warning("Instance heartbeat failed: " + ex.getMessage());
@@ -188,27 +205,30 @@ public class DataManager {
         JdbcPlayerData opened;
         try {
             opened = new JdbcPlayerData(plugin, settings, 1);
+            opened.onOutage(this::noteOutage);
         } catch (RuntimeException | java.sql.SQLException ex) {
             plugin.getLogger().warning("MySQL is still down: " + ex.getMessage());
             return;
         }
         try {
-            org.bukkit.configuration.file.YamlConfiguration yaml = snapshotBuffer(data.getConfig());
-            stampBuffer(yaml);
-            boolean applied = opened.absorb(yaml);
-            data.close();
-            data = opened;
-            if (runner != null) {
-                data.useRunner(runner);
+            synchronized (OutageBuffer.LOCK) {
+                org.bukkit.configuration.file.YamlConfiguration yaml = snapshotBuffer(data.getConfig());
+                stampBuffer(yaml);
+                boolean applied = opened.absorb(yaml);
+                data.close();
+                data = opened;
+                if (runner != null) {
+                    data.useRunner(runner);
+                }
+                pendingSql = null;
+                storageLabel = "mysql";
+                cluster = opened.clusterView();
+                secretCache = null;
+                Files.deleteIfExists(bufferPath());
+                plugin.getLogger().info(applied
+                        ? "MySQL connected. Buffered stats were added to shared rows."
+                        : "MySQL connected. Buffered stats were already applied.");
             }
-            pendingSql = null;
-            storageLabel = "mysql";
-            cluster = opened.clusterView();
-            secretCache = null;
-            Files.deleteIfExists(bufferPath());
-            plugin.getLogger().info(applied
-                    ? "MySQL connected. Buffered stats were added to shared rows."
-                    : "MySQL connected. Buffered stats were already applied.");
         } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
             try {
                 opened.close();
@@ -220,22 +240,27 @@ public class DataManager {
     }
 
     private void foldBuffer(PlayerData opened) {
-        if (!(opened instanceof JdbcPlayerData jdbc) || !Files.exists(bufferPath())) {
+        if (!(opened instanceof JdbcPlayerData jdbc)) {
             return;
         }
-        try {
-            org.bukkit.configuration.file.YamlConfiguration yaml =
-                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(bufferPath().toFile());
-            stampBuffer(yaml);
-            boolean applied = jdbc.absorb(yaml);
-            Files.deleteIfExists(bufferPath());
-            cluster = jdbc.clusterView();
-            secretCache = null;
-            plugin.getLogger().info(applied
-                    ? "Added stats buffered while MySQL was down."
-                    : "Buffered stats were already applied.");
-        } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
-            plugin.getLogger().severe("Could not fold the MySQL buffer: " + ex.getMessage());
+        synchronized (OutageBuffer.LOCK) {
+            if (!Files.exists(bufferPath())) {
+                return;
+            }
+            try {
+                org.bukkit.configuration.file.YamlConfiguration yaml =
+                        org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(bufferPath().toFile());
+                stampBuffer(yaml);
+                boolean applied = jdbc.absorb(yaml);
+                Files.deleteIfExists(bufferPath());
+                cluster = jdbc.clusterView();
+                secretCache = null;
+                plugin.getLogger().info(applied
+                        ? "Added stats buffered while MySQL was down."
+                        : "Buffered stats were already applied.");
+            } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
+                plugin.getLogger().severe("Could not fold the MySQL buffer: " + ex.getMessage());
+            }
         }
     }
 
