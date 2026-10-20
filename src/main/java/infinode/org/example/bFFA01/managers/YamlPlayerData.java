@@ -47,6 +47,9 @@ final class YamlPlayerData implements PlayerData {
             preserveCorruptFile(dataFile);
             return;
         }
+        if ("mysql-buffer.yml".equals(fileName(dataFile))) {
+            stampBufferId();
+        }
         if (!dataFile.toFile().exists()) {
             try {
                 store.writeSnapshot(store.saveToString());
@@ -54,6 +57,36 @@ final class YamlPlayerData implements PlayerData {
                 plugin.getLogger().severe("Could not create " + dataFile.getFileName() + ": " + ex.getMessage());
             }
         }
+    }
+
+    private void stampBufferId() {
+        String current = store.configuration().getString("buffer-id", "");
+        if (bufferUuid(current)) {
+            return;
+        }
+        store.configuration().set("buffer-id", UUID.randomUUID().toString());
+        try {
+            store.writeSnapshot(store.saveToString());
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Could not store the buffer id: " + ex.getMessage());
+        }
+    }
+
+    private static boolean bufferUuid(String value) {
+        if (value == null || value.length() != 36) {
+            return false;
+        }
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    private static String fileName(Path dataFile) {
+        Path name = dataFile == null ? null : dataFile.getFileName();
+        return name == null ? "" : name.toString();
     }
 
     @Override

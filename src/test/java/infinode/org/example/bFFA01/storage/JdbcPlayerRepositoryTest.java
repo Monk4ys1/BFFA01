@@ -7,12 +7,17 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JdbcPlayerRepositoryTest {
@@ -225,6 +230,87 @@ class JdbcPlayerRepositoryTest {
         assertEquals(1, record.deaths());
         assertEquals(4, record.coins());
         assertEquals(250L, record.damageDealt());
+    }
+
+    @Test
+    void bufferIdAppliesOnce() throws Exception {
+        UUID id = UUID.randomUUID();
+        String buffer = UUID.randomUUID().toString();
+        CountDelta delta = new CountDelta(id, 2, 0, 5, 0, 10L, 0L, 0L, 0L);
+        PlayerRecord profile = new PlayerRecord(id);
+        profile.name("Ada");
+        profile.streak(3);
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("buffer.db"), tempDir)) {
+            assertTrue(repository.applyBuffer(buffer, List.of(delta), List.of(profile)));
+            assertFalse(repository.applyBuffer(buffer, List.of(delta), List.of(profile)));
+            PlayerRecord stored = repository.loadOne(id);
+            assertEquals(2, stored.kills());
+            assertEquals(5, stored.coins());
+            assertEquals("Ada", stored.name());
+            assertEquals(3, stored.streak());
+        }
+    }
+
+    @Test
+    void storedSecretIsStableAndPreferredFillsAnEmptyRow() throws Exception {
+        try (JdbcPlayerRepository first = JdbcPlayerRepository.open(sqlite("secret.db"), tempDir);
+             JdbcPlayerRepository second = JdbcPlayerRepository.open(sqlite("secret.db"), tempDir)) {
+            String secret = first.storedSecret("");
+            assertEquals(64, secret.length());
+            assertEquals(secret, second.storedSecret("other-value"));
+            assertEquals(secret, first.storedSecret("other-value"));
+        }
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("preferred.db"), tempDir)) {
+            assertEquals("from-config", repository.storedSecret("from-config"));
+            assertEquals("from-config", repository.storedSecret("later"));
+        }
+    }
+
+    @Test
+    void loadPageReturnsHighestKillsFirst() throws Exception {
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("page.db"), tempDir)) {
+            UUID low = UUID.randomUUID();
+            UUID high = UUID.randomUUID();
+            UUID mid = UUID.randomUUID();
+            repository.applyDelta(new CountDelta(low, 1, 0, 0, 0, 0L, 0L, 0L, 0L));
+            repository.applyDelta(new CountDelta(high, 9, 0, 0, 0, 0L, 0L, 0L, 0L));
+            repository.applyDelta(new CountDelta(mid, 4, 0, 0, 0, 0L, 0L, 0L, 0L));
+            List<PlayerRecord> page = repository.loadPage(0, 2);
+            assertEquals(2, page.size());
+            assertEquals(high, page.get(0).id());
+            assertEquals(mid, page.get(1).id());
+            List<PlayerRecord> rest = repository.loadPage(2, 2);
+            assertEquals(1, rest.size());
+            assertEquals(low, rest.get(0).id());
+            assertEquals(3, repository.loadPage(0, 500).size());
+        }
+    }
+
+    @Test
+    void parallelDeltasAddUp() throws Exception {
+        UUID id = UUID.randomUUID();
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("parallel.db"), tempDir)) {
+            int threads = 4;
+            int each = 20;
+            ExecutorService pool = Executors.newFixedThreadPool(threads);
+            try {
+                List<Future<?>> futures = new ArrayList<>();
+                for (int t = 0; t < threads; t++) {
+                    futures.add(pool.submit(() -> {
+                        for (int i = 0; i < each; i++) {
+                            repository.applyDelta(new CountDelta(id, 1, 0, 0, 0, 0L, 0L, 0L, 0L));
+                        }
+                        return null;
+                    }));
+                }
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            assertEquals(threads * each, repository.loadOne(id).kills());
+        }
     }
 
     private StorageSettings sqlite(String file) {

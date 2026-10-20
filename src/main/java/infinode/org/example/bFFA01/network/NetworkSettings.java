@@ -132,6 +132,11 @@ public final class NetworkSettings {
         return redisChannel;
     }
 
+    public NetworkSettings withSecret(String next) {
+        return new NetworkSettings(enabled, leaderboardSeconds, messenger, redisHost, redisPort,
+                redisPassword, redisChannel, clipSecret(next));
+    }
+
     public String secret() {
         return secret;
     }

@@ -37,7 +37,18 @@ class NetworkSealTest {
         assertNull(NetworkSeal.decode(SECRET, NetworkSeal.encode(SECRET, "pod-a", "chat", "hi", NOW), NOW, false));
         String unsigned = NetworkSeal.encode("", "pod-a", "board", "1", NOW);
         assertNull(NetworkSeal.decode("", unsigned, NOW, true));
-        assertNotNull(NetworkSeal.decode("", unsigned, NOW, false));
+        assertNull(NetworkSeal.decode("", unsigned, NOW, false));
+    }
+
+    @Test
+    void withSecretReplacesOnlyTheSecret() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("network.enabled", true);
+        config.set("network.redis.host", "127.0.0.1");
+        NetworkSettings settings = NetworkSettings.load(config).withSecret("shared-secret");
+        assertEquals("shared-secret", settings.secret());
+        assertTrue(settings.signed());
+        assertEquals("127.0.0.1", settings.redisHost());
     }
 
     @Test

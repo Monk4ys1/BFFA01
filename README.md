@@ -120,9 +120,9 @@ Schema-Anlage nimmt auf MySQL `GET_LOCK('bffa_schema')`. `CREATE TABLE IF NOT EX
 
 Discord, Kartenwechsel, Hologramme, Scoreboard und bStats bleiben an der Instanz, auf der das Ereignis passiert. Ein Kill erzeugt einen Webhook, nicht einen pro Replica. Streak-Nachrichten über Redis und den Plugin-Kanal `bffa:net` werden pro Prozess einmal angezeigt. bStats zählt jeden Prozess, weil jeder Prozess ein Server ist. Die Rangliste im Speicher wird lokal neu geladen.
 
-Fällt MySQL beim Start aus, hält das Plugin die Stats in `mysql-buffer.yml` und addiert sie auf die gemeinsamen Zeilen, sobald die Datenbank da ist. Redis verbindet sich im Hintergrund neu. Ein kurzer Ausfall danach wiederholt Schreibvorgänge mit wachsendem Abstand.
+Fällt MySQL beim Start aus, hält das Plugin die Stats in `mysql-buffer.yml`. Die Datei bekommt eine `buffer-id`. Dieselbe Id wird in einer Transaktion mit den Zählern eingefügt. Ein Neustart zwischen Schreiben und Löschen addiert die Datei nicht ein zweites Mal. Redis verbindet sich im Hintergrund neu. Ein kurzer Ausfall danach wiederholt Schreibvorgänge mit wachsendem Abstand.
 
-Nachrichten zwischen Instanzen sind signiert, wenn `network.secret` oder `BFFA_NETWORK_SECRET` auf jeder Replica gleich ist. Ohne Geheimnis verwirft das Plugin den Kanal `bffa:net`, weil ein Spieler ihn fälschen kann. Redis nimmt dann weiter unsignierte Nachrichten an und warnt einmal beim Start. `/bffa network` zeigt `signed` oder `open`, nie das Geheimnis, das Redis-Passwort oder eine Webhook-URL.
+Nachrichten zwischen Instanzen sind signiert. Ist `network.secret` oder `BFFA_NETWORK_SECRET` gesetzt, gilt dieser Wert auf diesem Prozess und wird in die gemeinsame Tabelle geschrieben, solange dort noch keiner steht. Sonst erzeugt die erste MySQL-Instanz ein Geheimnis unter `GET_LOCK('bffa_secret')` und die anderen lesen dieselbe Zeile. Unsignierte Frames auf Redis und `bffa:net` werden verworfen. `/bffa network` zeigt `signed` oder `open`, nie das Geheimnis, das Redis-Passwort oder eine Webhook-URL.
 
 `/bffa network` zeigt die eigene Id, den Speicher, Redis und die lebenden Instanzen. Platzhalter: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
 
@@ -224,9 +224,9 @@ Instance ids are not read from `network.server-id` or `server-id.txt`. The proce
 
 Discord, map rotation, holograms, the sidebar, and bStats stay on the instance where the event happened, so one kill does not fan out to one webhook per replica. bStats still reports every process, because each process is a server. Streak lines published on Redis or plugin channel `bffa:net` are shown once per process. The proxy registers backends itself; this plugin does not talk to Velocity or BungeeCord.
 
-Set the same `network.secret` (or `BFFA_NETWORK_SECRET`) on every replica. Frames then carry an HMAC. With no secret, `bffa:net` is dropped because a player can forge it, and Redis still accepts unsigned messages after one warning. `/bffa network` shows `signed` or `open`. It does not print the secret, the Redis password, or a webhook URL.
+Frames carry an HMAC. `network.secret` or `BFFA_NETWORK_SECRET` overrides the shared secret on that process and is stored when the shared row is still empty. Otherwise the first MySQL instance generates one secret under `GET_LOCK('bffa_secret')` and the others read that row. Unsigned Redis and `bffa:net` frames are ignored. `/bffa network` shows `signed` or `open`. It does not print the secret, the Redis password, or a webhook URL.
 
-If MySQL is down at startup, stats are kept in `mysql-buffer.yml` and added to the shared rows when the database returns. Redis reconnects in the background. `/bffa network` lists live instances. Placeholders: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
+If MySQL is down at startup, stats are kept in `mysql-buffer.yml`. The file stores a `buffer-id`, and that id is inserted in the same transaction as the counters. A restart after the commit and before the file is deleted does not add the counters again. Redis reconnects in the background. `/bffa network` lists live instances. Placeholders: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
 
 Scale the same container with `docker compose up --scale bffa=3` or a Deployment of `replicas: 3`. Point every replica at one MariaDB (and optional Redis) with the variables above. Use a TCP readiness probe on `25565`. Put the MariaDB driver in `plugins/BFFA01/drivers/`. The database should be ready first; the plugin retries the first connection five times.
 

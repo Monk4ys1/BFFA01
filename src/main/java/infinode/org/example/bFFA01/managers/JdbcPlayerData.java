@@ -11,9 +11,11 @@ import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.JdbcPlayerRepository;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import infinode.org.example.bFFA01.storage.PlayerRecord;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.File;
@@ -22,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +42,7 @@ final class JdbcPlayerData implements PlayerData {
     private final ConcurrentHashMap<UUID, PlayerRecord> baseline = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> dirtyGen = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> presence = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> absent = ConcurrentHashMap.newKeySet();
     private static final int BOARD_LIMIT = 100;
     private final DirtySaveGate gate = new DirtySaveGate();
     private final Object writeLock = new Object();
@@ -68,10 +72,69 @@ final class JdbcPlayerData implements PlayerData {
         if (shared.isFile()) {
             plugin.getLogger().warning("Ignoring server-id.txt. A copied data folder must not make two instances share an id.");
         }
-        for (PlayerRecord record : repository.loadAll()) {
-            cache.put(record.id(), record);
-            baseline.put(record.id(), record.copy());
+        seedOnline();
+        seedBoards();
+    }
+
+    private void seedBoards() {
+        try {
+            for (PlayerRecord record : repository.loadPage(0, BOARD_LIMIT)) {
+                remember(record);
+            }
+            for (DamageEntry row : repository.topDamage(BOARD_LIMIT)) {
+                if (row != null && row.id() != null && !cache.containsKey(row.id())) {
+                    remember(repository.loadOne(row.id()));
+                }
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not load leaderboard rows: " + ex.getMessage());
         }
+    }
+
+    private void remember(PlayerRecord record) {
+        if (record == null || record.id() == null || cache.containsKey(record.id())) {
+            return;
+        }
+        cache.put(record.id(), record);
+        baseline.put(record.id(), record.copy());
+        absent.remove(record.id());
+    }
+
+    private void seedOnline() {
+        try {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (player == null) {
+                    continue;
+                }
+                UUID id = player.getUniqueId();
+                PlayerRecord loaded = repository.loadOne(id);
+                if (loaded == null) {
+                    loaded = new PlayerRecord(id);
+                    String name = player.getName();
+                    if (name != null) {
+                        loaded.name(name);
+                    }
+                }
+                cache.put(id, loaded);
+                baseline.put(id, loaded.copy());
+            }
+        } catch (Throwable ignored) {
+            // Unit tests have no server.
+        }
+    }
+
+    private Set<UUID> onlineIds() {
+        Set<UUID> ids = new HashSet<>();
+        try {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (player != null) {
+                    ids.add(player.getUniqueId());
+                }
+            }
+        } catch (Throwable ignored) {
+            // Unit tests have no server.
+        }
+        return ids;
     }
 
     @Override
@@ -87,26 +150,50 @@ final class JdbcPlayerData implements PlayerData {
     @Override
     public FileConfiguration getConfig() {
         YamlConfiguration config = new YamlConfiguration();
-        for (PlayerRecord record : cache.values()) {
-            PlayerRecord copy = record.copy();
-            String id = copy.id().toString();
-            config.set(id + ".name", copy.name());
-            config.set(id + ".kills", copy.kills());
-            config.set(id + ".deaths", copy.deaths());
-            config.set(id + ".coins", copy.coins());
-            config.set(id + ".assists", copy.assists());
-            config.set(id + ".streak", copy.streak());
-            config.set(id + ".damage-dealt", copy.damageDealt());
-            config.set(id + ".damage-taken", copy.damageTaken());
-            config.set(id + ".upgrades", new ArrayList<>(copy.upgrades()));
-            for (int slot = 0; slot < 9; slot++) {
-                String material = copy.layout(slot);
-                if (material != null) {
-                    config.set(id + ".layout." + slot, material);
+        try {
+            int offset = 0;
+            while (offset < 100_000) {
+                List<PlayerRecord> page = repository.loadPage(offset, 100);
+                if (page.isEmpty()) {
+                    break;
                 }
+                for (PlayerRecord record : page) {
+                    writeRecord(config, record);
+                }
+                if (page.size() < 100) {
+                    break;
+                }
+                offset += page.size();
             }
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Could not page player rows: " + ex.getMessage());
+        }
+        for (PlayerRecord record : cache.values()) {
+            writeRecord(config, record.copy());
         }
         return config;
+    }
+
+    private static void writeRecord(YamlConfiguration config, PlayerRecord record) {
+        if (record == null || record.id() == null) {
+            return;
+        }
+        String id = record.id().toString();
+        config.set(id + ".name", record.name());
+        config.set(id + ".kills", record.kills());
+        config.set(id + ".deaths", record.deaths());
+        config.set(id + ".coins", record.coins());
+        config.set(id + ".assists", record.assists());
+        config.set(id + ".streak", record.streak());
+        config.set(id + ".damage-dealt", record.damageDealt());
+        config.set(id + ".damage-taken", record.damageTaken());
+        config.set(id + ".upgrades", new ArrayList<>(record.upgrades()));
+        for (int slot = 0; slot < 9; slot++) {
+            String material = record.layout(slot);
+            if (material != null) {
+                config.set(id + ".layout." + slot, material);
+            }
+        }
     }
 
     @Override
@@ -117,7 +204,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public int getKills(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0 : record.kills();
     }
 
@@ -132,7 +219,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public int getDeaths(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0 : record.deaths();
     }
 
@@ -147,7 +234,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public int getCoins(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0 : record.coins();
     }
 
@@ -181,7 +268,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public boolean hasUpgrade(UUID uuid, String upgrade) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record != null && record.hasUpgrade(upgrade);
     }
 
@@ -224,7 +311,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public String getKitLayoutItem(UUID uuid, int slot) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? null : record.layout(slot);
     }
 
@@ -267,37 +354,37 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public long damageDealt(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0L : record.damageDealt();
     }
 
     @Override
     public long damageTaken(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0L : record.damageTaken();
     }
 
     @Override
     public long lifeDealt(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0L : record.lifeDealt();
     }
 
     @Override
     public long lifeTaken(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0L : record.lifeTaken();
     }
 
     @Override
     public int assists(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0 : record.assists();
     }
 
     @Override
     public int streak(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? 0 : record.streak();
     }
 
@@ -397,7 +484,7 @@ final class JdbcPlayerData implements PlayerData {
 
     @Override
     public String storedPrefs(UUID uuid) {
-        PlayerRecord record = cache.get(uuid);
+        PlayerRecord record = cached(uuid);
         return record == null ? "" : record.prefs();
     }
 
@@ -440,11 +527,7 @@ final class JdbcPlayerData implements PlayerData {
         closed = true;
         pending.cancel();
         pending = TaskRunner.Cancellable.NONE;
-        try {
-            repository.close();
-        } catch (SQLException ex) {
-            plugin.getLogger().warning("Could not close SQL storage: " + ex.getMessage());
-        }
+        repository.close();
     }
 
     @Override
@@ -537,6 +620,7 @@ final class JdbcPlayerData implements PlayerData {
         }
         cache.put(uuid, loaded);
         baseline.put(uuid, loaded.copy());
+        absent.remove(uuid);
     }
 
     private void mergeBoard(UUID id, String name, int kills, long damage, Set<UUID> online) {
@@ -554,7 +638,39 @@ final class JdbcPlayerData implements PlayerData {
         return name;
     }
 
+    private PlayerRecord cached(UUID uuid) {
+        if (uuid == null) {
+            return null;
+        }
+        PlayerRecord record = cache.get(uuid);
+        if (record != null) {
+            return record;
+        }
+        if (absent.contains(uuid)) {
+            return null;
+        }
+        try {
+            remember(repository.loadOne(uuid));
+        } catch (SQLException ex) {
+            return null;
+        }
+        record = cache.get(uuid);
+        if (record == null && absent.size() < 256) {
+            absent.add(uuid);
+        }
+        return record;
+    }
+
     private PlayerRecord record(UUID uuid) {
+        PlayerRecord existing = cache.get(uuid);
+        if (existing != null) {
+            return existing;
+        }
+        PlayerRecord loaded = cached(uuid);
+        if (loaded != null) {
+            return loaded;
+        }
+        absent.remove(uuid);
         return cache.computeIfAbsent(uuid, PlayerRecord::new);
     }
 
@@ -644,54 +760,88 @@ final class JdbcPlayerData implements PlayerData {
         }
     }
 
-    public void absorb(org.bukkit.configuration.file.FileConfiguration config) throws SQLException {
+    /**
+     * Applies a buffer file once. The id is inserted in the same transaction as the counters.
+     *
+     * @return false when that id was already committed
+     */
+    public boolean absorb(org.bukkit.configuration.file.FileConfiguration config) throws SQLException {
         if (config == null) {
-            return;
+            return true;
         }
+        String bufferId = config.getString("buffer-id", "");
+        if (!bufferUuid(bufferId)) {
+            throw new SQLException("buffer id is missing");
+        }
+        List<CountDelta> deltas = new ArrayList<>();
+        List<PlayerRecord> profiles = new ArrayList<>();
+        List<UUID> ids = new ArrayList<>();
+        for (String key : config.getKeys(false)) {
+            if (key.length() != 36) {
+                continue;
+            }
+            UUID id;
+            try {
+                id = UUID.fromString(key);
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+            deltas.add(new CountDelta(id,
+                    config.getInt(key + ".kills", 0),
+                    config.getInt(key + ".deaths", 0),
+                    config.getInt(key + ".coins", 0),
+                    config.getInt(key + ".assists", 0),
+                    config.getLong(key + ".damage-dealt", 0L),
+                    config.getLong(key + ".damage-taken", 0L),
+                    config.getLong(key + ".life-dealt", 0L),
+                    config.getLong(key + ".life-taken", 0L)));
+            PlayerRecord profile = new PlayerRecord(id);
+            profile.name(config.getString(key + ".name", ""));
+            profile.streak(config.getInt(key + ".streak", 0));
+            profile.prefs(config.getString(key + ".prefs", ""));
+            for (String upgrade : config.getStringList(key + ".upgrades")) {
+                profile.addUpgrade(upgrade);
+            }
+            for (int slot = 0; slot < 9; slot++) {
+                String material = config.getString(key + ".layout." + slot);
+                if (material != null) {
+                    profile.layout(slot, material);
+                }
+            }
+            profiles.add(profile);
+            ids.add(id);
+        }
+        boolean applied = repository.applyBuffer(bufferId, deltas, profiles);
         synchronized (writeLock) {
-            for (String key : config.getKeys(false)) {
-                if (key.length() != 36) {
+            for (UUID id : ids) {
+                if (dirtyGen.containsKey(id)) {
                     continue;
                 }
-                UUID id;
-                try {
-                    id = UUID.fromString(key);
-                } catch (IllegalArgumentException ex) {
+                PlayerRecord loaded = repository.loadOne(id);
+                if (loaded == null) {
                     continue;
                 }
-                CountDelta delta = new CountDelta(id,
-                        config.getInt(key + ".kills", 0),
-                        config.getInt(key + ".deaths", 0),
-                        config.getInt(key + ".coins", 0),
-                        config.getInt(key + ".assists", 0),
-                        config.getLong(key + ".damage-dealt", 0L),
-                        config.getLong(key + ".damage-taken", 0L),
-                        config.getLong(key + ".life-dealt", 0L),
-                        config.getLong(key + ".life-taken", 0L));
-                repository.applyDelta(delta);
-                PlayerRecord profile = new PlayerRecord(id);
-                String name = config.getString(key + ".name", "");
-                profile.name(name);
-                profile.streak(config.getInt(key + ".streak", 0));
-                profile.prefs(config.getString(key + ".prefs", ""));
-                for (String upgrade : config.getStringList(key + ".upgrades")) {
-                    profile.addUpgrade(upgrade);
-                }
-                for (int slot = 0; slot < 9; slot++) {
-                    String material = config.getString(key + ".layout." + slot);
-                    if (material != null) {
-                        profile.layout(slot, material);
-                    }
-                }
-                repository.saveProfile(profile);
+                cache.put(id, loaded);
+                baseline.put(id, loaded.copy());
             }
-            cache.clear();
-            baseline.clear();
-            dirtyGen.clear();
-            for (PlayerRecord record : repository.loadAll()) {
-                cache.put(record.id(), record);
-                baseline.put(record.id(), record.copy());
-            }
+        }
+        pullRemote(onlineIds());
+        return applied;
+    }
+
+    String storedSecret(String preferred) throws SQLException {
+        return repository.storedSecret(preferred);
+    }
+
+    private static boolean bufferUuid(String value) {
+        if (value == null || value.length() != 36) {
+            return false;
+        }
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
     }
 

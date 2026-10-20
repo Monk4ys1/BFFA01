@@ -96,8 +96,8 @@ damage:
 
 # Identical instances. auto joins the cluster when storage.type is mysql or mariadb.
 # Identity is BFFA_SERVER_ID, then POD_NAME or HOSTNAME when that name is unique, otherwise a random id.
-# server-id is ignored. Set the same network.secret on every instance (or BFFA_NETWORK_SECRET).
-# Without a secret, bffa:net is ignored because a player can forge it. Redis still accepts unsigned messages and logs a warning.
+# server-id is ignored. network.secret or BFFA_NETWORK_SECRET overrides the shared secret on this process.
+# With both blank, the first MySQL instance stores one secret and the others reuse it. Unsigned frames are ignored.
 network:
   # false stays local. true always joins the cluster.
   # auto joins when storage.type is mysql or mariadb, so one image can scale without a per-pod edit.

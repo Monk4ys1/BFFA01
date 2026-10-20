@@ -6,6 +6,7 @@ import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
 import infinode.org.example.bFFA01.text.DisplayedText;
 import infinode.org.example.bFFA01.ui.ClockText;
 import infinode.org.example.bFFA01.ui.Presentation;
+import infinode.org.example.bFFA01.ui.scoreboard.SidebarCache;
 import infinode.org.example.bFFA01.ui.scoreboard.SidebarFit;
 import infinode.org.example.bFFA01.ui.scoreboard.SidebarWriter;
 import infinode.org.example.bFFA01.util.MapNames;
@@ -20,6 +21,8 @@ import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +34,8 @@ public class ScoreboardManager {
     private volatile List<String> lines = List.of();
     private volatile String title = "<bold>BuildFFA";
     private final Map<UUID, String[]> rendered = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<String, String>> inputs = new ConcurrentHashMap<>();
+    private final Map<UUID, String> regions = new ConcurrentHashMap<>();
 
     public ScoreboardManager(BFFA01 plugin) {
         this.plugin = plugin;
@@ -45,11 +50,14 @@ public class ScoreboardManager {
     public void reloadConfig() {
         readFile();
         rendered.clear();
+        inputs.clear();
     }
 
     public void forget(Player player) {
         if (player != null) {
             rendered.remove(player.getUniqueId());
+            inputs.remove(player.getUniqueId());
+            regions.remove(player.getUniqueId());
         }
     }
 
@@ -66,6 +74,7 @@ public class ScoreboardManager {
         }
         Presentation presentation = plugin.presentation();
         rendered.remove(player.getUniqueId());
+        inputs.remove(player.getUniqueId());
         if (presentation != null && !presentation.preferences().scoreboard(player.getUniqueId())) {
             if (Bukkit.getScoreboardManager() != null) {
                 player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
@@ -98,12 +107,13 @@ public class ScoreboardManager {
         }
         try {
             if (!player.isOnline()) {
-                rendered.remove(player.getUniqueId());
+                forget(player);
                 return;
             }
         } catch (Throwable ex) {
             return;
         }
+        rememberRegion(player);
         Scoreboard board = player.getScoreboard();
         if (board == null) {
             return;
@@ -123,11 +133,21 @@ public class ScoreboardManager {
             setScoreboard(player);
             return;
         }
-        java.util.Map<String, String> values = values(player);
-        SidebarWriter.title(obj, DisplayedText.mini(plugin, player, title, values));
+        Map<String, String> values = values(player);
+        Map<String, String> priorValues = inputs.get(player.getUniqueId());
+        if (previous != null && SidebarCache.same(priorValues, values)) {
+            return;
+        }
+        if (priorValues == null || SidebarCache.lineAffected(title, priorValues, values)) {
+            SidebarWriter.title(obj, DisplayedText.mini(plugin, player, title, values));
+        }
 
         String[] next = new String[rows.size()];
         for (int i = 0; i < rows.size(); i++) {
+            if (previous != null && priorValues != null && !SidebarCache.lineAffected(rows.get(i), priorValues, values)) {
+                next[i] = previous[i];
+                continue;
+            }
             String processedLine = DisplayedText.mini(plugin, player, rows.get(i), values);
             next[i] = processedLine;
             if (previous != null && processedLine.equals(previous[i])) {
@@ -144,6 +164,20 @@ public class ScoreboardManager {
             SidebarWriter.line(team, score, processedLine, i);
         }
         rendered.put(player.getUniqueId(), next);
+        inputs.put(player.getUniqueId(), values);
+    }
+
+    private void rememberRegion(Player player) {
+        try {
+            org.bukkit.Location location = player.getLocation();
+            if (location.getWorld() == null) {
+                return;
+            }
+            String key = location.getWorld().getUID() + ":" + (location.getBlockX() >> 9) + ":" + (location.getBlockZ() >> 9);
+            regions.put(player.getUniqueId(), key);
+        } catch (Throwable ignored) {
+            // Location is only read on the player's own region thread.
+        }
     }
 
     private java.util.Map<String, String> values(Player player) {
@@ -190,18 +224,61 @@ public class ScoreboardManager {
             return;
         }
         scheduler.runTimer(() -> {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                if (player == null) {
-                    continue;
+            List<Player> online = new ArrayList<>();
+            try {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player != null) {
+                        online.add(player);
+                    }
                 }
-                scheduler.runOnEntity(player, () -> {
+            } catch (Throwable ex) {
+                return;
+            }
+            if (!scheduler.folia()) {
+                for (Player player : online) {
                     try {
                         updateScoreboard(player);
                     } catch (RuntimeException ex) {
                         plugin.getLogger().fine("Scoreboard update skipped: " + ex.getMessage());
                     }
+                }
+                return;
+            }
+            Map<String, List<Player>> groups = new HashMap<>();
+            List<Player> solo = new ArrayList<>();
+            for (Player player : online) {
+                String key = regions.get(player.getUniqueId());
+                if (key == null) {
+                    solo.add(player);
+                } else {
+                    groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(player);
+                }
+            }
+            for (Player player : solo) {
+                scheduler.runOnEntity(player, () -> updateOne(player));
+            }
+            for (List<Player> group : groups.values()) {
+                if (group.isEmpty()) {
+                    continue;
+                }
+                Player anchor = group.get(0);
+                scheduler.runOnEntity(anchor, () -> {
+                    for (Player player : group) {
+                        updateOne(player);
+                    }
                 });
             }
         }, 20L, 20L);
+    }
+
+    private void updateOne(Player player) {
+        try {
+            updateScoreboard(player);
+        } catch (RuntimeException ex) {
+            if (player != null) {
+                regions.remove(player.getUniqueId());
+            }
+            plugin.getLogger().fine("Scoreboard update skipped: " + ex.getMessage());
+        }
     }
 }

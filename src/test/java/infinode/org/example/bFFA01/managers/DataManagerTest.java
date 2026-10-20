@@ -18,6 +18,7 @@ import java.util.logging.Logger;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -154,6 +155,40 @@ class DataManagerTest {
         List<KillEntry> next = data.topKills(2);
         assertEquals(bob, next.get(0).id());
         assertEquals("Ann", next.get(1).name());
+    }
+
+    @Test
+    void mysqlBufferKeepsOneId() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        Path buffer = dataFolder.resolve("mysql-buffer.yml");
+        BFFA01 plugin = plugin(dataFolder);
+
+        new YamlPlayerData(plugin, buffer);
+        String first = YamlConfiguration.loadConfiguration(buffer.toFile()).getString("buffer-id");
+        new YamlPlayerData(plugin, buffer);
+
+        assertNotNull(first);
+        assertEquals(36, first.length());
+        assertEquals(first, YamlConfiguration.loadConfiguration(buffer.toFile()).getString("buffer-id"));
+    }
+
+    @Test
+    void sqliteAgreesOnOneClusterSecret() throws IOException {
+        Path dataFolder = tempDir.resolve("plugin");
+        Files.createDirectories(dataFolder);
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", "players.db");
+        BFFA01 plugin = plugin(dataFolder);
+        when(plugin.getConfig()).thenReturn(config);
+
+        DataManager data = new DataManager(plugin);
+        String secret = data.sharedSecret();
+
+        assertEquals(64, secret.length());
+        assertEquals(secret, data.sharedSecret());
+        data.flush();
     }
 
     private static List<Path> corruptCopies(Path dataFolder) throws IOException {

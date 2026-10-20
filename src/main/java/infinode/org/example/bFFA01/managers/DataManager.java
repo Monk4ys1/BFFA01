@@ -4,6 +4,7 @@ import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.TaskRunner;
 import infinode.org.example.bFFA01.config.StorageSettings;
 import infinode.org.example.bFFA01.network.ClusterSnapshot;
+import infinode.org.example.bFFA01.network.NetworkSettings;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -32,6 +33,8 @@ public class DataManager {
     private List<DamageEntry> damageBoard = List.of();
     private boolean rankedDirty = true;
     private boolean damageDirty = true;
+    private String secretCache;
+    private boolean secretOverrideLogged;
 
     public DataManager(BFFA01 plugin) {
         this.plugin = plugin;
@@ -92,6 +95,7 @@ public class DataManager {
                 plugin.getLogger().warning("Could not close the previous store: " + ex.getMessage());
             }
             data = next;
+            secretCache = null;
             rankedDirty = true;
             damageDirty = true;
             if (runner != null) {
@@ -99,6 +103,41 @@ public class DataManager {
             }
             plugin.getLogger().info("Storage reconnected (" + storageLabel + ").");
             return true;
+        }
+    }
+
+    /**
+     * Shared HMAC secret. A configured value overrides the row for this process.
+     * A blank configuration uses the row, creating it once when the table is empty.
+     */
+    public String sharedSecret() {
+        synchronized (gate) {
+            if (secretCache != null) {
+                return secretCache;
+            }
+            String configured = NetworkSettings.load(safeConfig(plugin)).secret();
+            if (!(data instanceof JdbcPlayerData jdbc)) {
+                return configured;
+            }
+            try {
+                String stored = jdbc.storedSecret(configured);
+                if (!configured.isEmpty() && !configured.equals(stored)) {
+                    if (!secretOverrideLogged) {
+                        secretOverrideLogged = true;
+                        plugin.getLogger().warning("This instance uses its configured network secret. The shared secret row stays as it is.");
+                    }
+                    secretCache = configured;
+                    return configured;
+                }
+                String chosen = configured.isEmpty() ? stored : configured;
+                if (chosen != null && !chosen.isEmpty()) {
+                    secretCache = chosen;
+                }
+                return chosen == null ? "" : chosen;
+            } catch (java.sql.SQLException ex) {
+                plugin.getLogger().warning("Cluster secret is not ready: " + ex.getMessage());
+                return "";
+            }
         }
     }
 
@@ -154,7 +193,9 @@ public class DataManager {
             return;
         }
         try {
-            opened.absorb(data.getConfig());
+            org.bukkit.configuration.file.YamlConfiguration yaml = snapshotBuffer(data.getConfig());
+            stampBuffer(yaml);
+            boolean applied = opened.absorb(yaml);
             data.close();
             data = opened;
             if (runner != null) {
@@ -163,8 +204,11 @@ public class DataManager {
             pendingSql = null;
             storageLabel = "mysql";
             cluster = opened.clusterView();
+            secretCache = null;
             Files.deleteIfExists(bufferPath());
-            plugin.getLogger().info("MySQL connected. Buffered stats were added to shared rows.");
+            plugin.getLogger().info(applied
+                    ? "MySQL connected. Buffered stats were added to shared rows."
+                    : "MySQL connected. Buffered stats were already applied.");
         } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
             try {
                 opened.close();
@@ -182,10 +226,14 @@ public class DataManager {
         try {
             org.bukkit.configuration.file.YamlConfiguration yaml =
                     org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(bufferPath().toFile());
-            jdbc.absorb(yaml);
+            stampBuffer(yaml);
+            boolean applied = jdbc.absorb(yaml);
             Files.deleteIfExists(bufferPath());
             cluster = jdbc.clusterView();
-            plugin.getLogger().info("Added stats buffered while MySQL was down.");
+            secretCache = null;
+            plugin.getLogger().info(applied
+                    ? "Added stats buffered while MySQL was down."
+                    : "Buffered stats were already applied.");
         } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
             plugin.getLogger().severe("Could not fold the MySQL buffer: " + ex.getMessage());
         }
@@ -193,6 +241,43 @@ public class DataManager {
 
     private Path bufferPath() {
         return plugin.getDataFolder().toPath().resolve("mysql-buffer.yml");
+    }
+
+    private static org.bukkit.configuration.file.YamlConfiguration snapshotBuffer(FileConfiguration config) {
+        if (config instanceof org.bukkit.configuration.file.YamlConfiguration yaml) {
+            return yaml;
+        }
+        org.bukkit.configuration.file.YamlConfiguration copy = new org.bukkit.configuration.file.YamlConfiguration();
+        if (config != null) {
+            for (String key : config.getKeys(true)) {
+                copy.set(key, config.get(key));
+            }
+        }
+        return copy;
+    }
+
+    private void stampBuffer(org.bukkit.configuration.file.YamlConfiguration yaml) throws java.io.IOException {
+        String current = yaml.getString("buffer-id", "");
+        if (!bufferUuid(current)) {
+            yaml.set("buffer-id", UUID.randomUUID().toString());
+        }
+        Path path = bufferPath();
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());
+        }
+        yaml.save(path.toFile());
+    }
+
+    private static boolean bufferUuid(String value) {
+        if (value == null || value.length() != 36) {
+            return false;
+        }
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     private static org.bukkit.configuration.file.FileConfiguration safeConfig(BFFA01 plugin) {

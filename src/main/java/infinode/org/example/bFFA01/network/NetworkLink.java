@@ -45,21 +45,19 @@ public final class NetworkLink {
             warnedStorage = true;
             plugin.getLogger().warning("network.enabled is on, but storage is not mysql. Stats stay on this server.");
         }
+        ensureSecret();
         if (settings.redis()) {
             redis = new RedisLink(settings.redisHost(), settings.redisPort(), settings.redisPassword(),
                     settings.redisChannel(), this::accept);
             redis.start();
             plugin.getLogger().info("Network Redis channel " + settings.redisChannel() + " on " + serverId() + ".");
-            if (!settings.signed()) {
-                plugin.getLogger().warning("Redis network messages are not signed. Set the same network.secret on every instance.");
-            }
         }
         if (settings.messenger()) {
             messenger = new PluginMessenger(text -> accept(text, true));
             messenger.enable(plugin);
-            if (!settings.signed()) {
-                plugin.getLogger().warning("bffa:net is ignored until network.secret is set.");
-            }
+        }
+        if ((settings.redis() || settings.messenger()) && !settings.signed()) {
+            plugin.getLogger().warning("Cluster secret is not ready. Network messages are ignored until the shared database has a secret.");
         }
         ServerScheduler scheduler = plugin.scheduler();
         if (scheduler != null) {
@@ -117,7 +115,23 @@ public final class NetworkLink {
         send("streak", clean(name) + "|" + streak);
     }
 
+    private void ensureSecret() {
+        if (!settings.enabled() || plugin.getDataManager() == null) {
+            return;
+        }
+        String secret = plugin.getDataManager().sharedSecret();
+        if (secret == null || secret.isEmpty() || secret.equals(settings.secret())) {
+            return;
+        }
+        settings = settings.withSecret(secret);
+        plugin.getLogger().info("Cluster messages are signed.");
+    }
+
     private void send(String kind, String body) {
+        ensureSecret();
+        if (!settings.signed()) {
+            return;
+        }
         long now = System.currentTimeMillis();
         String text = NetworkSeal.encode(settings.secret(), serverId(), kind, body, now);
         NetworkSeal.Frame frame = NetworkSeal.decode(settings.secret(), text, now, false);
@@ -139,6 +153,7 @@ public final class NetworkLink {
     }
 
     private void accept(String text, boolean pluginChannel) {
+        ensureSecret();
         NetworkSeal.Frame frame = NetworkSeal.decode(settings.secret(), text, System.currentTimeMillis(), pluginChannel);
         if (frame == null || serverId().equals(frame.id()) || !remember(frame)) {
             return;

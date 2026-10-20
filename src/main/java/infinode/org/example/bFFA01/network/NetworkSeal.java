@@ -8,8 +8,8 @@ import java.util.Locale;
 
 /**
  * HMAC-SHA256 on cross-instance frames. The tag is the first 8 bytes, hex encoded.
- * A blank secret rejects plugin-channel frames, which a client can forge, and still
- * accepts a short Redis frame so an existing unsigned deploy keeps working.
+ * A blank secret rejects every frame. Unsigned Redis and plugin-channel messages
+ * are both dropped.
  */
 public final class NetworkSeal {
 
@@ -37,21 +37,17 @@ public final class NetworkSeal {
         if (text == null || text.length() > MAX_FRAME || !text.startsWith("1|")) {
             return null;
         }
-        boolean signed = secret != null && !secret.isEmpty();
-        if (!signed && pluginChannel) {
+        if (secret == null || secret.isEmpty()) {
             return null;
         }
-        String unsigned = text;
-        if (signed) {
-            int cut = text.lastIndexOf('|');
-            if (cut < 8 || cut >= text.length() - 1) {
-                return null;
-            }
-            String presented = text.substring(cut + 1);
-            unsigned = text.substring(0, cut);
-            if (!same(tag(secret, unsigned), presented)) {
-                return null;
-            }
+        int cut = text.lastIndexOf('|');
+        if (cut < 8 || cut >= text.length() - 1) {
+            return null;
+        }
+        String presented = text.substring(cut + 1);
+        String unsigned = text.substring(0, cut);
+        if (!same(tag(secret, unsigned), presented)) {
+            return null;
         }
         int timeCut = unsigned.lastIndexOf('|');
         if (timeCut <= 0) {

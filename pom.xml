@@ -134,6 +134,10 @@
                             <pattern>net.kyori</pattern>
                             <shadedPattern>infinode.org.example.bFFA01.lib.kyori</shadedPattern>
                         </relocation>
+                        <relocation>
+                            <pattern>com.zaxxer.hikari</pattern>
+                            <shadedPattern>infinode.org.example.bFFA01.lib.hikari</shadedPattern>
+                        </relocation>
                     </relocations>
                 </configuration>
                 <executions>
@@ -221,6 +225,14 @@
                                     <resourcecontains resource="${project.build.directory}/${project.build.finalName}.jar" substring="infinode/org/example/bFFA01/lib/kyori/adventure/text/minimessage/MiniMessage.class"/>
                                 </condition>
                                 <fail unless="adventure.relocated" message="Adventure was not relocated into the plugin jar."/>
+                                <condition property="hikari.relocated">
+                                    <resourcecontains resource="${project.build.directory}/${project.build.finalName}.jar" substring="infinode/org/example/bFFA01/lib/hikari/HikariDataSource.class"/>
+                                </condition>
+                                <fail unless="hikari.relocated" message="HikariCP was not relocated into the plugin jar."/>
+                                <condition property="hikari.leaked">
+                                    <resourcecontains resource="${project.build.directory}/${project.build.finalName}.jar" substring="com/zaxxer/hikari/HikariDataSource.class"/>
+                                </condition>
+                                <fail if="hikari.leaked" message="Unrelocated HikariCP classes are still in the plugin jar."/>
                                 <condition property="adventure.leaked">
                                     <resourcecontains resource="${project.build.directory}/${project.build.finalName}.jar" substring="net/kyori/adventure/text/minimessage/MiniMessage.class"/>
                                 </condition>
@@ -310,6 +322,27 @@
                     <artifactId>slf4j-api</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.1.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>2.0.16</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

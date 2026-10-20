@@ -6,6 +6,7 @@ import infinode.org.example.bFFA01.network.InstanceIds;
 import infinode.org.example.bFFA01.network.InstanceRegistry;
 
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.PreparedStatement;
@@ -22,9 +23,9 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * One JDBC connection for player rows. Callers serialize access.
- * MySQL writes claim a short lease so another server cannot overwrite a player
- * who is online here. SQLite uses the same statements with a local holder.
+ * Pooled JDBC access for player rows. One public call borrows one connection.
+ * Nested calls on the same thread reuse it. MySQL writes claim a short lease
+ * so another server cannot overwrite a player who is online here.
  */
 public final class JdbcPlayerRepository implements AutoCloseable {
 
@@ -43,24 +44,74 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             "prefs VARCHAR(80) NOT NULL DEFAULT ''"
     };
 
-    private final Connection connection;
+    private final JdbcPool pool;
     private final boolean sqlite;
+    private final ThreadLocal<Connection> bound = new ThreadLocal<>();
+    private final Object state = new Object();
     private String serverId = "local";
     private String token = "";
     private long leaseMillis = 20_000L;
-    private boolean retired;
+    private volatile boolean retired;
 
-    private JdbcPlayerRepository(Connection connection, boolean sqlite) {
-        this.connection = connection;
+    private JdbcPlayerRepository(JdbcPool pool, boolean sqlite) throws SQLException {
+        this.pool = pool;
         this.sqlite = sqlite;
+        try (Scope ignored = open()) {
+            bootstrap();
+        }
+    }
+
+    private Connection connection() {
+        Connection current = bound.get();
+        if (current == null) {
+            throw new IllegalStateException("JDBC work is missing a connection");
+        }
+        return current;
+    }
+
+    private Scope open() throws SQLException {
+        return new Scope();
+    }
+
+    private final class Scope implements AutoCloseable {
+        private final boolean nested;
+        private final Connection owned;
+
+        private Scope() throws SQLException {
+            if (bound.get() != null) {
+                nested = true;
+                owned = null;
+                return;
+            }
+            nested = false;
+            owned = pool.borrow();
+            bound.set(owned);
+        }
+
+        @Override
+        public void close() {
+            if (nested) {
+                return;
+            }
+            bound.remove();
+            if (owned != null) {
+                try {
+                    owned.close();
+                } catch (SQLException ignored) {
+                    // The pool drops a broken connection.
+                }
+            }
+        }
     }
 
     public void lease(String serverId, long leaseMillis) {
-        if (serverId != null && !serverId.isBlank()) {
-            this.serverId = serverId.length() > 32 ? serverId.substring(0, 32) : serverId;
-        }
-        if (leaseMillis >= 5_000L) {
-            this.leaseMillis = leaseMillis;
+        synchronized (state) {
+            if (serverId != null && !serverId.isBlank()) {
+                this.serverId = serverId.length() > 32 ? serverId.substring(0, 32) : serverId;
+            }
+            if (leaseMillis >= 5_000L) {
+                this.leaseMillis = leaseMillis;
+            }
         }
     }
 
@@ -95,14 +146,13 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             Path file = dataFolder.resolve(settings.sqliteFile()).toAbsolutePath();
             Driver driver = DriverLoader.open(dataFolder.resolve("drivers"), "org.sqlite.JDBC");
             Properties properties = new Properties();
-            Connection connection = driver.connect("jdbc:sqlite:" + file, properties);
-            if (connection == null) {
-                throw new SQLException("SQLite driver refused " + file.getFileName());
+            String url = "jdbc:sqlite:" + file;
+            try (Connection probe = driver.connect(url, properties)) {
+                if (probe == null) {
+                    throw new SQLException("SQLite driver refused " + file.getFileName());
+                }
             }
-            JdbcPlayerRepository repository = new JdbcPlayerRepository(connection, true);
-            repository.prepareSqlite();
-            repository.bootstrap();
-            return repository;
+            return new JdbcPlayerRepository(JdbcPool.open(driver, url, properties, true), true);
         }
         Driver driver = DriverLoader.open(dataFolder.resolve("drivers"),
                 "org.mariadb.jdbc.Driver",
@@ -119,275 +169,456 @@ public final class JdbcPlayerRepository implements AutoCloseable {
         if (!settings.mysqlParameters().toLowerCase(Locale.ROOT).contains("connecttimeout")) {
             properties.setProperty("connectTimeout", "3000");
         }
-        Connection connection = driver.connect(url, properties);
-        if (connection == null) {
-            throw new SQLException("JDBC driver refused the MySQL URL");
+        try (Connection probe = driver.connect(url, properties)) {
+            if (probe == null) {
+                throw new SQLException("JDBC driver refused the MySQL URL");
+            }
         }
-        JdbcPlayerRepository repository = new JdbcPlayerRepository(connection, false);
-        repository.bootstrap();
-        return repository;
+        return new JdbcPlayerRepository(JdbcPool.open(driver, url, properties, false), false);
     }
 
     /**
      * Takes {@code preferred} when no live instance holds it. A collision,
      * including a copied server id, returns a different id.
      */
-    public synchronized String claimInstance(String preferred) throws SQLException {
-        InstanceRegistry.Claim claim = InstanceRegistry.claim(connection, sqlite, preferred);
-        this.serverId = claim.id();
-        this.token = claim.token();
-        return claim.id();
-    }
-
-    public synchronized ClusterSnapshot heartbeat(int players) throws SQLException {
-        if (token.isBlank()) {
-            return ClusterSnapshot.alone(serverId);
-        }
-        ClusterSnapshot snapshot = InstanceRegistry.beat(connection, serverId, token, players);
-        if (snapshot == null) {
-            String next = claimInstance(InstanceIds.random());
-            InstanceIds.adopt(next);
-            snapshot = InstanceRegistry.beat(connection, serverId, token, players);
-        }
-        extendLeases();
-        return snapshot == null ? ClusterSnapshot.alone(serverId) : snapshot;
-    }
-
-    public synchronized ClusterSnapshot cluster() throws SQLException {
-        if (token.isBlank()) {
-            return ClusterSnapshot.alone(serverId);
-        }
-        return InstanceRegistry.read(connection, serverId, System.currentTimeMillis());
-    }
-
-    public synchronized void retire() throws SQLException {
-        if (retired || token.isBlank()) {
-            retired = true;
-            return;
-        }
-        InstanceRegistry.retire(connection, serverId, token);
-        retired = true;
-    }
-
-    public synchronized List<PlayerRecord> loadAll() throws SQLException {
-        List<PlayerRecord> records = new ArrayList<>();
-        try (Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT " + COLUMNS + " FROM bffa_player")) {
-            while (rows.next()) {
-                records.add(read(rows));
+    public String claimInstance(String preferred) throws SQLException {
+        try (Scope scope = open()) {
+            InstanceRegistry.Claim claim = InstanceRegistry.claim(connection(), sqlite, preferred);
+            synchronized (state) {
+                this.serverId = claim.id();
+                this.token = claim.token();
             }
+            return claim.id();
         }
-        return records;
     }
 
-    public synchronized PlayerRecord loadOne(UUID id) throws SQLException {
+    public ClusterSnapshot heartbeat(int players) throws SQLException {
+        String id;
+        String leaseToken;
+        synchronized (state) {
+            id = serverId;
+            leaseToken = token;
+        }
+        if (leaseToken.isBlank()) {
+            return ClusterSnapshot.alone(id);
+        }
+        try (Scope scope = open()) {
+            ClusterSnapshot snapshot = InstanceRegistry.beat(connection(), id, leaseToken, players);
+            if (snapshot == null) {
+                String next = claimInstance(InstanceIds.random());
+                InstanceIds.adopt(next);
+                synchronized (state) {
+                    id = serverId;
+                    leaseToken = token;
+                }
+                snapshot = InstanceRegistry.beat(connection(), id, leaseToken, players);
+            }
+            extendLeases();
+            return snapshot == null ? ClusterSnapshot.alone(id) : snapshot;
+        }
+    }
+
+    public ClusterSnapshot cluster() throws SQLException {
+        String id;
+        String leaseToken;
+        synchronized (state) {
+            id = serverId;
+            leaseToken = token;
+        }
+        if (leaseToken.isBlank()) {
+            return ClusterSnapshot.alone(id);
+        }
+        try (Scope scope = open()) {
+            return InstanceRegistry.read(connection(), id, System.currentTimeMillis());
+        }
+    }
+
+    public void retire() throws SQLException {
+        String id;
+        String leaseToken;
+        synchronized (state) {
+            if (retired || token.isBlank()) {
+                retired = true;
+                return;
+            }
+            id = serverId;
+            leaseToken = token;
+        }
+        try (Scope scope = open()) {
+            InstanceRegistry.retire(connection(), id, leaseToken);
+        }
+        synchronized (state) {
+            retired = true;
+        }
+    }
+
+    public List<PlayerRecord> loadAll() throws SQLException {
+        try (Scope scope = open()) {
+            List<PlayerRecord> records = new ArrayList<>();
+            try (Statement statement = connection().createStatement();
+                 ResultSet rows = statement.executeQuery("SELECT " + COLUMNS + " FROM bffa_player")) {
+                while (rows.next()) {
+                    records.add(read(rows));
+                }
+            }
+            return records;
+        }
+    }
+
+    public PlayerRecord loadOne(UUID id) throws SQLException {
         if (id == null) {
             return null;
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT " + COLUMNS + " FROM bffa_player WHERE id=?")) {
-            statement.setString(1, id.toString());
-            try (ResultSet rows = statement.executeQuery()) {
-                if (!rows.next()) {
-                    return null;
+        try (Scope scope = open()) {
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT " + COLUMNS + " FROM bffa_player WHERE id=?")) {
+                statement.setString(1, id.toString());
+                try (ResultSet rows = statement.executeQuery()) {
+                    if (!rows.next()) {
+                        return null;
+                    }
+                    return read(rows);
                 }
-                return read(rows);
             }
         }
     }
 
-    public synchronized List<KillEntry> topKills(int limit) throws SQLException {
+    public List<KillEntry> topKills(int limit) throws SQLException {
         int capped = cap(limit);
-        List<KillEntry> entries = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, player_name, kills FROM bffa_player ORDER BY kills DESC, player_name ASC LIMIT ?")) {
-            statement.setInt(1, capped);
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    entries.add(new KillEntry(UUID.fromString(rows.getString("id")), nameOf(rows), rows.getInt("kills")));
+        try (Scope scope = open()) {
+            List<KillEntry> entries = new ArrayList<>();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT id, player_name, kills FROM bffa_player ORDER BY kills DESC, player_name ASC LIMIT ?")) {
+                statement.setInt(1, capped);
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        entries.add(new KillEntry(UUID.fromString(rows.getString("id")), nameOf(rows), rows.getInt("kills")));
+                    }
                 }
             }
+            return entries;
         }
-        return entries;
     }
 
-    public synchronized List<DamageEntry> topDamage(int limit) throws SQLException {
+    public List<DamageEntry> topDamage(int limit) throws SQLException {
         int capped = cap(limit);
-        List<DamageEntry> entries = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, player_name, damage_dealt FROM bffa_player ORDER BY damage_dealt DESC, player_name ASC LIMIT ?")) {
-            statement.setInt(1, capped);
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    entries.add(new DamageEntry(UUID.fromString(rows.getString("id")), nameOf(rows), rows.getLong("damage_dealt")));
+        try (Scope scope = open()) {
+            List<DamageEntry> entries = new ArrayList<>();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT id, player_name, damage_dealt FROM bffa_player ORDER BY damage_dealt DESC, player_name ASC LIMIT ?")) {
+                statement.setInt(1, capped);
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        entries.add(new DamageEntry(UUID.fromString(rows.getString("id")), nameOf(rows), rows.getLong("damage_dealt")));
+                    }
                 }
             }
+            return entries;
         }
-        return entries;
     }
 
-    public synchronized void saveAll(Collection<PlayerRecord> records) throws SQLException {
+    /**
+     * One page of rows, highest kills first. {@code limit} is clamped to 1..100.
+     */
+    public List<PlayerRecord> loadPage(int offset, int limit) throws SQLException {
+        int capped = Math.min(Math.max(limit, 1), 100);
+        int start = Math.max(0, offset);
+        try (Scope scope = open()) {
+            List<PlayerRecord> records = new ArrayList<>();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT " + COLUMNS + " FROM bffa_player ORDER BY kills DESC, player_name ASC LIMIT ? OFFSET ?")) {
+                statement.setInt(1, capped);
+                statement.setInt(2, start);
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        records.add(read(rows));
+                    }
+                }
+            }
+            return records;
+        }
+    }
+
+    public void saveAll(Collection<PlayerRecord> records) throws SQLException {
         if (records == null || records.isEmpty()) {
             return;
         }
-        boolean previous = connection.getAutoCommit();
-        connection.setAutoCommit(false);
-        try {
-            long until = System.currentTimeMillis() + leaseMillis;
-            for (PlayerRecord record : records) {
-                upsert(record, until);
+        try (Scope scope = open()) {
+            boolean previous = connection().getAutoCommit();
+            connection().setAutoCommit(false);
+            try {
+                long until = System.currentTimeMillis() + leaseMillis;
+                for (PlayerRecord record : records) {
+                    upsert(record, until);
+                }
+                connection().commit();
+            } catch (SQLException ex) {
+                connection().rollback();
+                throw ex;
+            } finally {
+                connection().setAutoCommit(previous);
             }
-            connection.commit();
-        } catch (SQLException ex) {
-            connection.rollback();
-            throw ex;
-        } finally {
-            connection.setAutoCommit(previous);
         }
     }
 
-    public synchronized void release(UUID id) throws SQLException {
+    public void release(UUID id) throws SQLException {
         if (id == null) {
             return;
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE bffa_player SET holder='', held_until=0 WHERE id=? AND holder=?")) {
-            statement.setString(1, id.toString());
-            statement.setString(2, serverId);
-            statement.executeUpdate();
+        try (Scope scope = open()) {
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "UPDATE bffa_player SET holder='', held_until=0 WHERE id=? AND holder=?")) {
+                statement.setString(1, id.toString());
+                statement.setString(2, holder());
+                statement.executeUpdate();
+            }
         }
     }
 
-    public synchronized void applyDelta(CountDelta delta) throws SQLException {
+    public void applyDelta(CountDelta delta) throws SQLException {
         if (delta == null || delta.id() == null || !delta.any()) {
             return;
         }
-        if (updateDelta(delta) > 0) {
-            return;
-        }
-        try {
-            insertDelta(delta);
-        } catch (SQLException ex) {
-            if (!duplicate(ex)) {
-                throw ex;
+        try (Scope scope = open()) {
+            if (updateDelta(delta) > 0) {
+                return;
             }
-            updateDelta(delta);
+            try {
+                insertDelta(delta);
+            } catch (SQLException ex) {
+                if (!duplicate(ex)) {
+                    throw ex;
+                }
+                updateDelta(delta);
+            }
+        }
+    }
+
+    /**
+     * Inserts {@code bufferId} and the counter deltas in one transaction.
+     *
+     * @return false when this id was already committed, so a retried file does not add the counters again
+     */
+    public boolean applyBuffer(String bufferId, List<CountDelta> deltas, List<PlayerRecord> profiles) throws SQLException {
+        if (bufferId == null || bufferId.isBlank() || bufferId.length() > 36) {
+            throw new SQLException("buffer id is missing");
+        }
+        try (Scope scope = open()) {
+            Connection conn = connection();
+            boolean previous = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement insert = conn.prepareStatement(
+                        "INSERT INTO bffa_buffer (id, applied) VALUES (?, ?)")) {
+                    insert.setString(1, bufferId);
+                    insert.setLong(2, System.currentTimeMillis());
+                    insert.executeUpdate();
+                } catch (SQLException ex) {
+                    conn.rollback();
+                    if (duplicate(ex)) {
+                        return false;
+                    }
+                    throw ex;
+                }
+                if (deltas != null) {
+                    for (CountDelta delta : deltas) {
+                        applyDelta(delta);
+                    }
+                }
+                if (profiles != null) {
+                    for (PlayerRecord profile : profiles) {
+                        try {
+                            saveProfile(profile);
+                        } catch (SQLException ignored) {
+                            // A refused lease must not undo the counters.
+                        }
+                    }
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException ex) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                    // The caller retries the same buffer id.
+                }
+                throw ex;
+            } finally {
+                try {
+                    conn.setAutoCommit(previous);
+                } catch (SQLException ignored) {
+                    // The pool resets auto-commit when the connection returns.
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the cluster secret. An existing row is never replaced. An empty
+     * table stores {@code preferred} when it is usable, otherwise a generated value.
+     * MySQL takes {@code GET_LOCK('bffa_secret')} for the read-or-insert.
+     */
+    public String storedSecret(String preferred) throws SQLException {
+        try (Scope scope = open()) {
+            boolean locked = false;
+            if (!sqlite) {
+                try (Statement statement = connection().createStatement();
+                     ResultSet rows = statement.executeQuery("SELECT GET_LOCK('bffa_secret', 10)")) {
+                    locked = rows.next() && rows.getInt(1) == 1;
+                }
+                if (!locked) {
+                    throw new SQLException("Timed out waiting for the cluster secret");
+                }
+            }
+            try {
+                String existing = readSecret();
+                if (!existing.isEmpty()) {
+                    return existing;
+                }
+                String chosen = usableSecret(preferred) ? clip(preferred.trim(), 128) : randomSecret();
+                try (PreparedStatement insert = connection().prepareStatement(
+                        "INSERT INTO bffa_secret (id, secret) VALUES ('cluster', ?)")) {
+                    insert.setString(1, chosen);
+                    insert.executeUpdate();
+                    return chosen;
+                } catch (SQLException ex) {
+                    if (!duplicate(ex)) {
+                        throw ex;
+                    }
+                }
+                return readSecret();
+            } finally {
+                if (locked) {
+                    try (Statement statement = connection().createStatement()) {
+                        statement.execute("SELECT RELEASE_LOCK('bffa_secret')");
+                    }
+                }
+            }
         }
     }
 
     /**
      * @return 1 when this instance holds the row, 0 when the row does not exist yet, -1 when a live instance holds it
      */
-    public synchronized int claimPlayer(UUID id) throws SQLException {
+    public int claimPlayer(UUID id) throws SQLException {
         if (id == null) {
             return 0;
         }
-        long now = System.currentTimeMillis();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE bffa_player SET holder=?, held_until=? WHERE id=? AND " + steal())) {
-            statement.setString(1, serverId);
-            statement.setLong(2, now + leaseMillis);
-            statement.setString(3, id.toString());
-            bindSteal(statement, 4, now);
-            if (statement.executeUpdate() > 0) {
-                return 1;
+        try (Scope scope = open()) {
+            long now = System.currentTimeMillis();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "UPDATE bffa_player SET holder=?, held_until=? WHERE id=? AND " + steal())) {
+                statement.setString(1, holder());
+                statement.setLong(2, now + leaseMillis);
+                statement.setString(3, id.toString());
+                bindSteal(statement, 4, now);
+                if (statement.executeUpdate() > 0) {
+                    return 1;
+                }
             }
-        }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id FROM bffa_player WHERE id=?")) {
-            statement.setString(1, id.toString());
-            try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? -1 : 0;
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT id FROM bffa_player WHERE id=?")) {
+                statement.setString(1, id.toString());
+                try (ResultSet rows = statement.executeQuery()) {
+                    return rows.next() ? -1 : 0;
+                }
             }
         }
     }
 
-    public synchronized boolean saveProfile(PlayerRecord record) throws SQLException {
+    public boolean saveProfile(PlayerRecord record) throws SQLException {
         if (record == null || record.id() == null) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        PlayerRecord copy = record.copy();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE bffa_player SET player_name=?, upgrades=?, layout=?, streak=?, prefs=?, holder=?, held_until=? "
-                        + "WHERE id=? AND " + steal())) {
-            statement.setString(1, copy.name());
-            statement.setString(2, PlayerRecord.joinUpgrades(copy.upgrades()));
-            statement.setString(3, PlayerRecord.joinLayout(copy));
-            statement.setInt(4, copy.streak());
-            statement.setString(5, clip(copy.prefs(), 80));
-            statement.setString(6, serverId);
-            statement.setLong(7, now + leaseMillis);
-            statement.setString(8, copy.id().toString());
-            bindSteal(statement, 9, now);
-            if (statement.executeUpdate() > 0) {
+        try (Scope scope = open()) {
+            long now = System.currentTimeMillis();
+            PlayerRecord copy = record.copy();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "UPDATE bffa_player SET player_name=?, upgrades=?, layout=?, streak=?, prefs=?, holder=?, held_until=? "
+                            + "WHERE id=? AND " + steal())) {
+                statement.setString(1, copy.name());
+                statement.setString(2, PlayerRecord.joinUpgrades(copy.upgrades()));
+                statement.setString(3, PlayerRecord.joinLayout(copy));
+                statement.setInt(4, copy.streak());
+                statement.setString(5, clip(copy.prefs(), 80));
+                statement.setString(6, holder());
+                statement.setLong(7, now + leaseMillis);
+                statement.setString(8, copy.id().toString());
+                bindSteal(statement, 9, now);
+                if (statement.executeUpdate() > 0) {
+                    return true;
+                }
+            }
+            try (PreparedStatement insert = connection().prepareStatement(
+                    "INSERT INTO bffa_player (id, player_name, upgrades, layout, streak, prefs, holder, held_until) "
+                            + "VALUES (?,?,?,?,?,?,?,?)")) {
+                insert.setString(1, copy.id().toString());
+                insert.setString(2, copy.name());
+                insert.setString(3, PlayerRecord.joinUpgrades(copy.upgrades()));
+                insert.setString(4, PlayerRecord.joinLayout(copy));
+                insert.setInt(5, copy.streak());
+                insert.setString(6, clip(copy.prefs(), 80));
+                insert.setString(7, holder());
+                insert.setLong(8, now + leaseMillis);
+                insert.executeUpdate();
                 return true;
+            } catch (SQLException ex) {
+                if (!duplicate(ex)) {
+                    throw ex;
+                }
             }
+            return false;
         }
-        try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO bffa_player (id, player_name, upgrades, layout, streak, prefs, holder, held_until) "
-                        + "VALUES (?,?,?,?,?,?,?,?)")) {
-            insert.setString(1, copy.id().toString());
-            insert.setString(2, copy.name());
-            insert.setString(3, PlayerRecord.joinUpgrades(copy.upgrades()));
-            insert.setString(4, PlayerRecord.joinLayout(copy));
-            insert.setInt(5, copy.streak());
-            insert.setString(6, clip(copy.prefs(), 80));
-            insert.setString(7, serverId);
-            insert.setLong(8, now + leaseMillis);
-            insert.executeUpdate();
-            return true;
-        } catch (SQLException ex) {
-            if (!duplicate(ex)) {
-                throw ex;
-            }
-        }
-        return false;
     }
 
-    public synchronized void resetCounters(UUID id) throws SQLException {
+    public void resetCounters(UUID id) throws SQLException {
         if (id == null) {
             return;
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE bffa_player SET kills=0, deaths=0, assists=0, streak=0, "
-                        + "damage_dealt=0, damage_taken=0, life_dealt=0, life_taken=0 WHERE id=?")) {
-            statement.setString(1, id.toString());
-            statement.executeUpdate();
+        try (Scope scope = open()) {
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "UPDATE bffa_player SET kills=0, deaths=0, assists=0, streak=0, "
+                            + "damage_dealt=0, damage_taken=0, life_dealt=0, life_taken=0 WHERE id=?")) {
+                statement.setString(1, id.toString());
+                statement.executeUpdate();
+            }
         }
     }
 
-    public synchronized boolean clearLife(UUID id) throws SQLException {
+    public boolean clearLife(UUID id) throws SQLException {
         if (id == null) {
             return true;
         }
-        long now = System.currentTimeMillis();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE bffa_player SET life_dealt=0, life_taken=0 WHERE id=? AND " + steal())) {
-            statement.setString(1, id.toString());
-            bindSteal(statement, 2, now);
-            if (statement.executeUpdate() > 0) {
-                return true;
+        try (Scope scope = open()) {
+            long now = System.currentTimeMillis();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "UPDATE bffa_player SET life_dealt=0, life_taken=0 WHERE id=? AND " + steal())) {
+                statement.setString(1, id.toString());
+                bindSteal(statement, 2, now);
+                if (statement.executeUpdate() > 0) {
+                    return true;
+                }
             }
-        }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id FROM bffa_player WHERE id=?")) {
-            statement.setString(1, id.toString());
-            try (ResultSet rows = statement.executeQuery()) {
-                return !rows.next();
+            try (PreparedStatement statement = connection().prepareStatement(
+                    "SELECT id FROM bffa_player WHERE id=?")) {
+                statement.setString(1, id.toString());
+                try (ResultSet rows = statement.executeQuery()) {
+                    return !rows.next();
+                }
             }
         }
     }
 
     @Override
-    public synchronized void close() throws SQLException {
-        connection.close();
+    public void close() {
+        retired = true;
+        pool.close();
     }
 
     private void bootstrap() throws SQLException {
         boolean locked = false;
         if (!sqlite) {
-            try (Statement statement = connection.createStatement();
+            try (Statement statement = connection().createStatement();
                  ResultSet rows = statement.executeQuery("SELECT GET_LOCK('bffa_schema', 30)")) {
                 locked = rows.next() && rows.getInt(1) == 1;
             }
@@ -397,24 +628,30 @@ public final class JdbcPlayerRepository implements AutoCloseable {
         }
         try {
             createTable();
-            InstanceRegistry.ensure(connection, sqlite);
+            InstanceRegistry.ensure(connection(), sqlite);
             migrate();
             indexes();
         } finally {
             if (locked) {
-                try (Statement statement = connection.createStatement()) {
+                try (Statement statement = connection().createStatement()) {
                     statement.execute("SELECT RELEASE_LOCK('bffa_schema')");
                 }
             }
         }
     }
 
+    private String holder() {
+        synchronized (state) {
+            return serverId;
+        }
+    }
+
     private void extendLeases() throws SQLException {
         long until = System.currentTimeMillis() + leaseMillis;
-        try (PreparedStatement statement = connection.prepareStatement(
+        try (PreparedStatement statement = connection().prepareStatement(
                 "UPDATE bffa_player SET held_until=? WHERE holder=?")) {
             statement.setLong(1, until);
-            statement.setString(2, serverId);
+            statement.setString(2, holder());
             statement.executeUpdate();
         }
     }
@@ -428,7 +665,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
                 + "life_dealt = life_dealt + ?, life_taken = life_taken + ?, "
                 + "assists = CASE WHEN assists + ? > 2147483647 THEN 2147483647 ELSE assists + ? END "
                 + "WHERE id=?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection().prepareStatement(sql)) {
             int index = 1;
             statement.setInt(index++, delta.kills());
             statement.setInt(index++, delta.kills());
@@ -451,7 +688,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
     private void insertDelta(CountDelta delta) throws SQLException {
         long now = System.currentTimeMillis();
         int coins = Math.max(0, delta.coins());
-        try (PreparedStatement statement = connection.prepareStatement(
+        try (PreparedStatement statement = connection().prepareStatement(
                 "INSERT INTO bffa_player (id, player_name, kills, deaths, coins, damage_dealt, damage_taken, "
                         + "life_dealt, life_taken, assists, holder, held_until) VALUES (?,'',?,?,?,?,?,?,?,?,?,?)")) {
             statement.setString(1, delta.id().toString());
@@ -463,7 +700,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             statement.setLong(7, Math.max(0L, delta.lifeDealt()));
             statement.setLong(8, Math.max(0L, delta.lifeTaken()));
             statement.setInt(9, Math.max(0, delta.assists()));
-            statement.setString(10, serverId);
+            statement.setString(10, holder());
             statement.setLong(11, now + leaseMillis);
             statement.executeUpdate();
         }
@@ -475,17 +712,9 @@ public final class JdbcPlayerRepository implements AutoCloseable {
     }
 
     private void bindSteal(PreparedStatement statement, int index, long now) throws SQLException {
-        statement.setString(index, serverId);
+        statement.setString(index, holder());
         statement.setLong(index + 1, now);
         statement.setLong(index + 2, now - InstanceRegistry.STALE_MILLIS);
-    }
-
-    private void prepareSqlite() throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA journal_mode=WAL");
-            statement.execute("PRAGMA synchronous=NORMAL");
-            statement.execute("PRAGMA busy_timeout=5000");
-        }
     }
 
     private void createTable() throws SQLException {
@@ -507,11 +736,23 @@ public final class JdbcPlayerRepository implements AutoCloseable {
                 + "held_until BIGINT NOT NULL DEFAULT 0,"
                 + "prefs VARCHAR(80) NOT NULL DEFAULT ''"
                 + ")";
+        String buffer = "CREATE TABLE IF NOT EXISTS bffa_buffer ("
+                + "id VARCHAR(36) NOT NULL PRIMARY KEY,"
+                + "applied BIGINT NOT NULL DEFAULT 0"
+                + ")";
+        String secret = "CREATE TABLE IF NOT EXISTS bffa_secret ("
+                + "id VARCHAR(16) NOT NULL PRIMARY KEY,"
+                + "secret VARCHAR(128) NOT NULL"
+                + ")";
         if (!sqlite) {
             ddl += " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            buffer += " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            secret += " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         }
-        try (Statement statement = connection.createStatement()) {
+        try (Statement statement = connection().createStatement()) {
             statement.execute(ddl);
+            statement.execute(buffer);
+            statement.execute(secret);
         }
     }
 
@@ -522,7 +763,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             if (present.contains(name)) {
                 continue;
             }
-            try (Statement statement = connection.createStatement()) {
+            try (Statement statement = connection().createStatement()) {
                 statement.execute("ALTER TABLE bffa_player ADD COLUMN " + column);
             } catch (SQLException ex) {
                 if (!duplicateColumn(ex)) {
@@ -538,7 +779,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
     }
 
     private void ensureIndex(String name, String columns) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
+        try (Statement statement = connection().createStatement()) {
             statement.execute("CREATE INDEX " + name + " ON bffa_player (" + columns + ")");
         } catch (SQLException ex) {
             if (!duplicateIndex(ex)) {
@@ -550,7 +791,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
     private Set<String> columns() throws SQLException {
         Set<String> names = new HashSet<>();
         String sql = sqlite ? "PRAGMA table_info(bffa_player)" : "SHOW COLUMNS FROM bffa_player";
-        try (Statement statement = connection.createStatement();
+        try (Statement statement = connection().createStatement();
              ResultSet rows = statement.executeQuery(sql)) {
             while (rows.next()) {
                 names.add(rows.getString(sqlite ? "name" : "Field").toLowerCase(Locale.ROOT));
@@ -562,7 +803,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
     private void upsert(PlayerRecord record, long until) throws SQLException {
         PlayerRecord copy = record.copy();
         long now = System.currentTimeMillis();
-        try (PreparedStatement update = connection.prepareStatement(
+        try (PreparedStatement update = connection().prepareStatement(
                 "UPDATE bffa_player SET player_name=?, kills=?, deaths=?, coins=?, upgrades=?, layout=?, "
                         + "damage_dealt=?, damage_taken=?, life_dealt=?, life_taken=?, assists=?, streak=?, prefs=?, "
                         + "holder=?, held_until=? WHERE id=? AND " + steal())) {
@@ -573,7 +814,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
                 return;
             }
         }
-        try (PreparedStatement insert = connection.prepareStatement(
+        try (PreparedStatement insert = connection().prepareStatement(
                 "INSERT INTO bffa_player (player_name, kills, deaths, coins, upgrades, layout, "
                         + "damage_dealt, damage_taken, life_dealt, life_taken, assists, streak, prefs, holder, held_until, id) "
                         + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
@@ -602,7 +843,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
         statement.setInt(11, record.assists());
         statement.setInt(12, record.streak());
         statement.setString(13, clip(record.prefs(), 80));
-        statement.setString(14, serverId);
+        statement.setString(14, holder());
         statement.setLong(15, until);
     }
 
@@ -639,6 +880,37 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             return "";
         }
         return value.length() <= max ? value : value.substring(0, max);
+    }
+
+    private String readSecret() throws SQLException {
+        try (PreparedStatement statement = connection().prepareStatement(
+                "SELECT secret FROM bffa_secret WHERE id='cluster'")) {
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return "";
+                }
+                String secret = rows.getString(1);
+                return secret == null ? "" : secret;
+            }
+        }
+    }
+
+    private static boolean usableSecret(String preferred) {
+        if (preferred == null) {
+            return false;
+        }
+        String trimmed = preferred.trim();
+        return !trimmed.isEmpty() && trimmed.indexOf('\n') < 0 && trimmed.indexOf('\r') < 0;
+    }
+
+    private static String randomSecret() {
+        byte[] bytes = new byte[32];
+        new SecureRandom().nextBytes(bytes);
+        StringBuilder hex = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) {
+            hex.append(String.format(Locale.ROOT, "%02x", value));
+        }
+        return hex.toString();
     }
 
     private static boolean duplicate(SQLException ex) {
