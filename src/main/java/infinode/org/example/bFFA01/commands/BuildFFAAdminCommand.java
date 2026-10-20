@@ -220,7 +220,7 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
         line(sender, "help-resetstats", "&b/bffa resetstats <player> &7- Reset kills/deaths");
         line(sender, "help-swapmap", "&b/bffa swapmap [name] &7- Force swap map (with 3s sequence)");
         line(sender, "help-reload", "&b/bffa reload &7- Reload config and messages");
-        line(sender, "help-network", "&b/bffa network &7- Show this server's network status");
+        line(sender, "help-network", "&b/bffa network &7- Show the live instances");
     }
 
     private void network(CommandSender sender) {
@@ -230,12 +230,27 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String storage = plugin.getDataManager() == null ? "yaml" : plugin.getDataManager().storageLabel();
-        reply(sender, "network-status", "&aServer &e%id% &aon &e%storage%&a. Redis: &e%redis%&a.",
+        var snap = plugin.getDataManager() == null
+                ? infinode.org.example.bFFA01.network.ClusterSnapshot.alone(link.serverId())
+                : plugin.getDataManager().cluster();
+        int players = snap.players() < 0 ? 0 : snap.players();
+        reply(sender, "network-status",
+                "&aServer &e%id% &aon &e%storage%&a. Redis: &e%redis%&a. Instances: &e%servers%&a. Players: &e%players%&a.",
                 Map.of(
                         "id", link.serverId(),
                         "storage", storage,
-                        "redis", link.redisConnected() ? "connected" : "off"
+                        "redis", link.redisConnected() ? "connected" : "off",
+                        "servers", Integer.toString(snap.servers()),
+                        "players", Integer.toString(players)
                 ));
+        int shown = 0;
+        for (var member : snap.members()) {
+            if (shown++ >= 20) {
+                break;
+            }
+            reply(sender, "network-member", "&7- &e%id% &7(&f%players%&7)",
+                    Map.of("id", member.id(), "players", Integer.toString(Math.max(0, member.players()))));
+        }
     }
 
     private void line(CommandSender sender, String key, String fallback) {

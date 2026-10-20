@@ -1,6 +1,7 @@
 package infinode.org.example.bFFA01.managers;
 
 import infinode.org.example.bFFA01.compat.TaskRunner;
+import infinode.org.example.bFFA01.network.ClusterSnapshot;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -80,6 +81,14 @@ interface PlayerData {
     void pullRemote(java.util.Set<UUID> online);
 
     void flush();
+
+    default ClusterSnapshot clusterView() {
+        return ClusterSnapshot.alone("");
+    }
+
+    default ClusterSnapshot heartbeat(int players) {
+        return null;
+    }
 
     default void close() {
     }

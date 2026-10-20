@@ -32,6 +32,8 @@ class BffaTokensTest {
         assertEquals("1", BffaTokens.resolve(source, VIEWER, "assists"));
         assertEquals("9.5", BffaTokens.resolve(source, null, "top_damage_1"));
         assertEquals("Notch", BffaTokens.resolve(source, null, "top_damage_name_1"));
+        assertEquals("1", BffaTokens.resolve(source, VIEWER, "network_servers"));
+        assertEquals("3", BffaTokens.resolve(source, VIEWER, "network_players"));
     }
 
     @Test

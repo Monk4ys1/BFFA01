@@ -69,4 +69,16 @@ public interface StatSource {
     default String topDamageName(int rank) {
         return "";
     }
+
+    default int networkServers() {
+        return 1;
+    }
+
+    default int networkPlayers() {
+        return Math.max(0, online());
+    }
+
+    default String networkId() {
+        return "";
+    }
 }

@@ -3,11 +3,14 @@ package infinode.org.example.bFFA01.managers;
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.TaskRunner;
 import infinode.org.example.bFFA01.config.StorageSettings;
+import infinode.org.example.bFFA01.network.ClusterSnapshot;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -23,6 +26,8 @@ public class DataManager {
     private PlayerData data;
     private TaskRunner runner;
     private String storageLabel = "yaml";
+    private StorageSettings pendingSql;
+    private ClusterSnapshot cluster = ClusterSnapshot.alone("");
     private List<KillEntry> ranked = List.of();
     private List<DamageEntry> damageBoard = List.of();
     private boolean rankedDirty = true;
@@ -40,8 +45,18 @@ public class DataManager {
                 plugin.getLogger().info("Opening " + settings.type().name().toLowerCase() + " player storage.");
                 PlayerData opened = new JdbcPlayerData(plugin, settings);
                 storageLabel = settings.type().name().toLowerCase(java.util.Locale.ROOT);
+                pendingSql = null;
+                cluster = opened.clusterView();
+                foldBuffer(opened);
                 return opened;
             } catch (RuntimeException | java.sql.SQLException ex) {
+                if (settings.type() == StorageSettings.Type.MYSQL && fallbackToYaml) {
+                    plugin.getLogger().severe("MySQL is not reachable (" + ex.getMessage()
+                            + "). Stats stay in a local buffer until it returns.");
+                    pendingSql = settings;
+                    storageLabel = "mysql-pending";
+                    return new YamlPlayerData(plugin, plugin.getDataFolder().toPath().resolve("mysql-buffer.yml"));
+                }
                 if (!fallbackToYaml) {
                     throw new IllegalStateException(ex.getMessage(), ex);
                 }
@@ -91,6 +106,93 @@ public class DataManager {
         synchronized (gate) {
             return storageLabel;
         }
+    }
+
+    public ClusterSnapshot cluster() {
+        synchronized (gate) {
+            return cluster;
+        }
+    }
+
+    public void heartbeat(int players) {
+        TaskRunner current;
+        synchronized (gate) {
+            current = runner;
+        }
+        Runnable job = () -> {
+            synchronized (gate) {
+                if (pendingSql != null) {
+                    promote();
+                }
+                try {
+                    ClusterSnapshot snapshot = data.heartbeat(Math.max(0, players));
+                    if (snapshot != null) {
+                        cluster = snapshot;
+                    }
+                } catch (RuntimeException ex) {
+                    plugin.getLogger().warning("Instance heartbeat failed: " + ex.getMessage());
+                }
+            }
+        };
+        if (current == null) {
+            job.run();
+        } else {
+            current.runAsync(job);
+        }
+    }
+
+    private void promote() {
+        StorageSettings settings = pendingSql;
+        if (settings == null) {
+            return;
+        }
+        JdbcPlayerData opened;
+        try {
+            opened = new JdbcPlayerData(plugin, settings, 1);
+        } catch (RuntimeException | java.sql.SQLException ex) {
+            plugin.getLogger().warning("MySQL is still down: " + ex.getMessage());
+            return;
+        }
+        try {
+            opened.absorb(data.getConfig());
+            data.close();
+            data = opened;
+            if (runner != null) {
+                data.useRunner(runner);
+            }
+            pendingSql = null;
+            storageLabel = "mysql";
+            cluster = opened.clusterView();
+            Files.deleteIfExists(bufferPath());
+            plugin.getLogger().info("MySQL connected. Buffered stats were added to shared rows.");
+        } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
+            try {
+                opened.close();
+            } catch (RuntimeException ignored) {
+                // The buffer stays in place for the next attempt.
+            }
+            plugin.getLogger().warning("Could not switch to MySQL: " + ex.getMessage());
+        }
+    }
+
+    private void foldBuffer(PlayerData opened) {
+        if (!(opened instanceof JdbcPlayerData jdbc) || !Files.exists(bufferPath())) {
+            return;
+        }
+        try {
+            org.bukkit.configuration.file.YamlConfiguration yaml =
+                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(bufferPath().toFile());
+            jdbc.absorb(yaml);
+            Files.deleteIfExists(bufferPath());
+            cluster = jdbc.clusterView();
+            plugin.getLogger().info("Added stats buffered while MySQL was down.");
+        } catch (RuntimeException | java.io.IOException | java.sql.SQLException ex) {
+            plugin.getLogger().severe("Could not fold the MySQL buffer: " + ex.getMessage());
+        }
+    }
+
+    private Path bufferPath() {
+        return plugin.getDataFolder().toPath().resolve("mysql-buffer.yml");
     }
 
     private static org.bukkit.configuration.file.FileConfiguration safeConfig(BFFA01 plugin) {

@@ -42,7 +42,10 @@ public final class BffaTokens {
             "%bffa_life_taken%",
             "%bffa_assists%",
             "%bffa_top_damage_<n>%",
-            "%bffa_top_damage_name_<n>%"
+            "%bffa_top_damage_name_<n>%",
+            "%bffa_network_servers%",
+            "%bffa_network_players%",
+            "%bffa_network_id%"
     );
 
     private static final Pattern PERCENT = Pattern.compile("%bffa_([^%\\s]+)%", Pattern.CASE_INSENSITIVE);
@@ -142,6 +145,15 @@ public final class BffaTokens {
         if (lower.equals("life_taken") || lower.startsWith("life_taken_")) {
             UUID id = named(source, viewer, params, "life_taken");
             return id == null ? "0" : source.lifeTaken(id);
+        }
+        if (lower.equals("network_servers") || lower.equals("network_instances")) {
+            return Integer.toString(Math.max(0, source.networkServers()));
+        }
+        if (lower.equals("network_players")) {
+            return Integer.toString(Math.max(0, source.networkPlayers()));
+        }
+        if (lower.equals("network_id")) {
+            return plain(source.networkId());
         }
         return null;
     }

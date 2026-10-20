@@ -2,6 +2,7 @@ package infinode.org.example.bFFA01.hooks.papi;
 
 import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.combat.DamageMath;
+import infinode.org.example.bFFA01.network.ClusterSnapshot;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.hooks.IntegrationSettings;
 import infinode.org.example.bFFA01.hooks.bedrock.BedrockPlayers;
@@ -189,6 +190,51 @@ public final class PluginStatSource implements StatSource {
             return Bukkit.getOnlinePlayers().size();
         } catch (Throwable ignored) {
             return 0;
+        }
+    }
+
+    @Override
+    public int networkServers() {
+        if (!clustered()) {
+            return 1;
+        }
+        return snapshot().servers();
+    }
+
+    @Override
+    public int networkPlayers() {
+        if (!clustered()) {
+            return online();
+        }
+        int players = snapshot().players();
+        return players < 0 ? online() : players;
+    }
+
+    @Override
+    public String networkId() {
+        try {
+            return plugin.network() == null ? "" : plugin.network().serverId();
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private boolean clustered() {
+        try {
+            return plugin.network() != null && plugin.network().enabled();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private ClusterSnapshot snapshot() {
+        try {
+            if (plugin.getDataManager() == null) {
+                return ClusterSnapshot.alone("");
+            }
+            return plugin.getDataManager().cluster();
+        } catch (Throwable ignored) {
+            return ClusterSnapshot.alone("");
         }
     }
 

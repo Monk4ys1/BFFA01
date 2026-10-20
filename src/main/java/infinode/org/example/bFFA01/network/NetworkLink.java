@@ -20,7 +20,6 @@ public final class NetworkLink {
 
     private final BFFA01 plugin;
     private final ArrayDeque<String> recent = new ArrayDeque<>();
-    private final String serverId;
     private volatile NetworkSettings settings = NetworkSettings.load(null);
     private RedisLink redis;
     private PluginMessenger messenger;
@@ -30,7 +29,6 @@ public final class NetworkLink {
 
     public NetworkLink(BFFA01 plugin) {
         this.plugin = plugin;
-        this.serverId = ServerIds.current(plugin);
     }
 
     public void start() {
@@ -51,7 +49,7 @@ public final class NetworkLink {
             redis = new RedisLink(settings.redisHost(), settings.redisPort(), settings.redisPassword(),
                     settings.redisChannel(), this::accept);
             redis.start();
-            plugin.getLogger().info("Network Redis channel " + settings.redisChannel() + " on " + serverId + ".");
+            plugin.getLogger().info("Network Redis channel " + settings.redisChannel() + " on " + serverId() + ".");
         }
         if (settings.messenger()) {
             messenger = new PluginMessenger(this::accept);
@@ -82,7 +80,7 @@ public final class NetworkLink {
     }
 
     public String serverId() {
-        return serverId;
+        return InstanceIds.current();
     }
 
     public boolean redisConnected() {
@@ -110,7 +108,7 @@ public final class NetworkLink {
     }
 
     private void send(String kind, String body) {
-        String text = "1|" + serverId + "|" + kind + "|" + body + "|" + System.currentTimeMillis();
+        String text = "1|" + serverId() + "|" + kind + "|" + body + "|" + System.currentTimeMillis();
         if (text.length() > 240) {
             return;
         }
@@ -130,7 +128,7 @@ public final class NetworkLink {
             return;
         }
         String[] parts = text.split("\\|", 5);
-        if (parts.length < 5 || serverId.equals(parts[1]) || !remember(text)) {
+        if (parts.length < 5 || serverId().equals(parts[1]) || !remember(text)) {
             return;
         }
         if ("board".equals(parts[2])) {

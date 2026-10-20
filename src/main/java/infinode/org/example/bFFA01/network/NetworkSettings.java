@@ -2,8 +2,11 @@ package infinode.org.example.bFFA01.network;
 
 import org.bukkit.configuration.file.FileConfiguration;
 
+import java.util.Locale;
+
 /**
- * Cross-server options. {@code enabled} defaults to false so one server needs no extra keys.
+ * Cross-server options. {@code enabled: auto} turns the cluster on only when
+ * storage is MySQL or MariaDB, so a single YAML server still needs nothing.
  */
 public final class NetworkSettings {
 
@@ -27,7 +30,7 @@ public final class NetworkSettings {
     }
 
     public static NetworkSettings load(FileConfiguration config) {
-        boolean enabled = config != null && config.getBoolean("network.enabled", false);
+        boolean enabled = enabled(config);
         int seconds = config == null ? 30 : config.getInt("network.leaderboard-seconds", 30);
         if (seconds < 5) {
             seconds = 5;
@@ -51,6 +54,36 @@ public final class NetworkSettings {
             channel = "bffa";
         }
         return new NetworkSettings(enabled, seconds, messenger, host, port, password, channel.trim());
+    }
+
+    static boolean enabled(FileConfiguration config) {
+        if (config == null) {
+            return false;
+        }
+        Object raw = config.get("network.enabled");
+        if (raw == null) {
+            return false;
+        }
+        if (raw instanceof Boolean flag) {
+            return flag;
+        }
+        String text = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(text) || "yes".equals(text) || "on".equals(text)) {
+            return true;
+        }
+        if ("false".equals(text) || "no".equals(text) || "off".equals(text)) {
+            return false;
+        }
+        return sharedStorage(config);
+    }
+
+    private static boolean sharedStorage(FileConfiguration config) {
+        String type = config.getString("storage.type", "yaml");
+        if (type == null) {
+            return false;
+        }
+        String normalized = type.trim().toLowerCase(Locale.ROOT);
+        return "mysql".equals(normalized) || "mariadb".equals(normalized);
     }
 
     public boolean enabled() {

@@ -4,7 +4,7 @@ BuildFFA für Minecraft Java Edition. Ein Jar läuft auf Spigot, Paper, Purpur u
 
 A BuildFFA minigame for Minecraft Java Edition. One jar runs on Spigot, Paper, Purpur, and Folia from **1.20** through the current release.
 
-Version **3.7**. Das Plugin ist teilweise KI-unterstützt entstanden. Fehler bitte melden.
+Version **3.8**. Das Plugin ist teilweise KI-unterstützt entstanden. Fehler bitte melden.
 
 **`BFFA01-4.1.jar` nicht aus der Git-Historie oder von einer rohen GitHub-URL laden.** Diese Datei ist ein altes Binary und passt nicht zu diesem Quelltext. Bauen mit `./mvnw verify` aus dem aktuellen Baum (oder ein Release-Asset, das daraus gebaut wurde) und die Prüfsumme prüfen, bevor das Jar auf einen Server kommt.
 
@@ -18,7 +18,7 @@ Release 4.1 hatte `/build` und eine eigene `maps.yml`. Dieser Baum hat beides ni
 - **Shop:** Dauerhafte Upgrades und Einmal-Items. Angezeigte Münzen sind das Guthaben, das auch abgebucht wird: interne Münzen oder, bei `integrations.vault.shop: vault`, das formatierte Vault-Guthaben.
 - **Killstreaks und Stats:** Kills, Tode, K/D, Streaks, Schaden verursacht und erhalten (Lebenszeit und aktuelle Serie), Assists. `/stats` zeigt den eigenen Stand, die Kill-Rangliste und die Schadensrangliste.
 - **Schaden im Kampf:** Schwebende Trefferzahlen am Treffer (TextDisplay, sonst ein Rüstungsständer), Actionbar mit Treffer, Combo und restlicher Gesundheit, Kritik- und Sweep-Farben, Zusammenfassung nach Kill oder Tod. Global über `damage.enabled` und `presentation.yml`, je Spieler unter `/settings`. Schnelle Treffer teilen sich eine Zahl und verschwinden von allein.
-- **Mehrere Server:** Optional. Ein einzelner Server braucht keine neuen Schlüssel. Mit `network.enabled` und MySQL/MariaDB teilen sich die Server Stats, Münzen, Kits und Anzeige-Einstellungen. Redis oder der Kanal `bffa:net` verteilt Streaks und lädt Ranglisten neu.
+- **Mehrere Server:** Optional und für automatisches Skalieren gedacht. Gleiches Jar, gleiche `config.yml`. `network.enabled: auto` schaltet den Cluster ein, sobald der Speicher MySQL oder MariaDB ist. Jede Instanz holt sich eine eigene Id (Umgebungsvariable, Pod-Name oder Zufall) und meldet sich per Heartbeat. YAML bleibt ein einzelner Server ohne weitere Schlüssel.
 - **Aussehen:** Palette und Icons in `theme.yml`. Scoreboard, Tab, Bossbar, Actionbar, Titel, Kill-Effekte, Chat und Hologramme nutzen dieselben Tokens (`%color_primary%`, `%icon_map%`).
 - **Scoreboard:** Zeilen aus `scoreboard.yml`. Lokale Tokens, `%bffa_*%`, PlaceholderAPI und MiniPlaceholders werden vor MiniMessage eingesetzt. Lange Verläufe bleiben auf Paper erhalten und werden auf Spigot auf das 64-Zeichen-Limit der Teams gekürzt.
 - **Sprache:** MiniMessage in `lang/en.yml` und `lang/de.yml`. `language` in `config.yml`.
@@ -92,19 +92,70 @@ Eine vorhandene `config.yml` ohne `config-version` wird nach `config.yml.v1.bak`
 
 `presentation.yml` unter `damage` schaltet Indikator, Actionbar und Chat-Zusammenfassung einzeln. `ticks` ist die Lebensdauer, `merge-millis` fasst Treffer zusammen. `%icon_hit%` kommt aus `theme.yml`.
 
-### Mehrere Server
+### Mehrere Server und Autoscaling
 
-Ein Server mit `network.enabled: false` ändert sich nicht. Für ein Netzwerk:
+Ein Server mit YAML oder SQLite bleibt lokal. `network.enabled` hat drei Stellungen:
 
-1. Auf jedem Server `storage.type: mysql` mit derselben Datenbank. Den MariaDB- oder MySQL-Treiber nach `plugins/BFFA01/drivers/` legen und neu starten.
-2. `network.enabled: true` und eine eigene `network.server-id` (Buchstaben, Ziffern, `_`, `-`, höchstens 32 Zeichen). Bleibt sie leer, merkt sich das Plugin eine Id in `plugins/BFFA01/server-id.txt` und warnt.
-3. Optional Redis: `network.redis.host`, `port`, `password`, `channel` (Standard `bffa`). Zwei Sockets, eines zum Senden und eines zum Empfangen. Streak-Meilensteine und Rangliste gehen darüber.
-4. `network.messenger` (Standard an) sendet dieselben kurzen Zeilen auf dem Plugin-Kanal `bffa:net`, sobald ein Spieler online ist. Der Proxy muss den Kanal weiterleiten. Redis braucht das nicht.
-5. `network.leaderboard-seconds` lädt fremde Zeilen nach. Ein Spieler wird beim Join neu gelesen und beim Verlassen geschrieben und freigegeben, damit der nächste Server keine alte Zeile überschreibt.
+- `false` bleibt lokal, auch mit MySQL.
+- `true` ist immer ein Cluster (MySQL sollte dann an sein).
+- `auto` (Standard in der mitgelieferten Datei) ist an, wenn `storage.type` `mysql` oder `mariadb` ist.
 
-MySQL-Schreibvorgänge tragen auch ohne `network.enabled` eine kurze Lease, damit zwei Prozesse dieselbe Zeile nicht gleichzeitig überschreiben. YAML und SQLite bleiben lokal.
+Eine schon vorhandene `config.yml` mit `enabled: false` bleibt lokal, bis der Wert oder die Umgebung sie umstellt.
 
-`/bffa network` zeigt Id, Speicher und ob Redis verbunden ist.
+Identität kommt nicht aus der Config und nicht aus `server-id.txt`. Eine kopierte Datei würde sonst jede Replica auf dieselbe Id setzen. Die Reihenfolge ist `BFFA_SERVER_ID`, dann `POD_NAME` oder `HOSTNAME`, wenn der Name nicht allgemein ist (`paper`, `localhost`, `bffa`, …). Fehlen beide, gilt der Hostname des Betriebssystems, sonst eine Zufalls-Id pro Start. Ist die Wunsch-Id im Heartbeat noch lebendig, nimmt der Prozess eine neue. Ein hart beendeter Prozess (`SIGKILL`) fällt nach 15 Sekunden aus der Liste, seine Spieler-Leases auch.
+
+Umgebungsvariablen liegen nur im Speicher über der Datei, das Image bleibt gleich:
+
+| Variable | Wirkung |
+| :--- | :--- |
+| `BFFA_STORAGE_TYPE` | `yaml`, `sqlite`, `mysql` oder `mariadb` |
+| `BFFA_MYSQL_HOST`, `BFFA_MYSQL_PORT`, `BFFA_MYSQL_DATABASE`, `BFFA_MYSQL_USERNAME`, `BFFA_MYSQL_PASSWORD`, `BFFA_MYSQL_PARAMETERS` | JDBC-Ziel |
+| `BFFA_NETWORK` | `auto`, `true` oder `false` |
+| `BFFA_SERVER_ID` | Feste Id dieser Replica |
+| `BFFA_REDIS_HOST`, `BFFA_REDIS_PORT`, `BFFA_REDIS_PASSWORD`, `BFFA_REDIS_CHANNEL` | Optionales Redis |
+| `BFFA_LANGUAGE` | `en` oder `de` |
+
+Schema-Anlage nimmt auf MySQL `GET_LOCK('bffa_schema')`. `CREATE TABLE IF NOT EXISTS` und `ALTER` sind wiederholbar, auch wenn viele Pods gleichzeitig starten. Kills, Tode, Münzen, Schaden und Assists werden addiert (`spalte = spalte + änderung`). Kit, Name, Streak und Anzeige-Einstellungen schreibt nur die Instanz mit der Lease. Die Lease läuft ab, wenn der Heartbeat der haltenden Instanz älter als 15 Sekunden ist, auch ohne sauberes Stoppen. Beim Join wird die Zeile neu gelesen, beim Quit geschrieben und freigegeben.
+
+Discord, Kartenwechsel, Hologramme, Scoreboard und bStats bleiben an der Instanz, auf der das Ereignis passiert. Ein Kill erzeugt einen Webhook, nicht einen pro Replica. Streak-Nachrichten über Redis und den Plugin-Kanal `bffa:net` werden pro Prozess einmal angezeigt. bStats zählt jeden Prozess, weil jeder Prozess ein Server ist. Die Rangliste im Speicher wird lokal neu geladen.
+
+Fällt MySQL beim Start aus, hält das Plugin die Stats in `mysql-buffer.yml` und addiert sie auf die gemeinsamen Zeilen, sobald die Datenbank da ist. Redis verbindet sich im Hintergrund neu. Ein kurzer Ausfall danach wiederholt Schreibvorgänge mit wachsendem Abstand.
+
+`/bffa network` zeigt die eigene Id, den Speicher, Redis und die lebenden Instanzen. Platzhalter: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
+
+Der Proxy registriert die Backends selbst (Velocity oder BungeeCord, dynamisch). Dieses Plugin meldet sich nicht am Proxy an.
+
+Beispiel, drei gleiche Container gegen eine MariaDB. `docker compose up --scale bffa=3` startet weitere Kopien.
+
+```yaml
+services:
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: bffa
+      MARIADB_USER: bffa
+      MARIADB_PASSWORD: bffa
+      MARIADB_ROOT_PASSWORD: root
+  redis:
+    image: redis:7
+  bffa:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      MEMORY: 2G
+      BFFA_STORAGE_TYPE: mysql
+      BFFA_MYSQL_HOST: mariadb
+      BFFA_MYSQL_DATABASE: bffa
+      BFFA_MYSQL_USERNAME: bffa
+      BFFA_MYSQL_PASSWORD: bffa
+      BFFA_NETWORK: auto
+      BFFA_REDIS_HOST: redis
+    volumes:
+      - ./BFFA01.jar:/plugins/BFFA01.jar:ro
+```
+
+Kubernetes: dasselbe Image, `replicas: 3`, dieselben Env-Einträge, `HOSTNAME` ist der Pod-Name. Eine TCP-Readiness auf Port 25565 wartet, bis der Server gebunden hat. Die Datenbank sollte vorher stehen (`connectTimeout` ist 3 Sekunden, der Start versucht es fünfmal). Der MariaDB-Treiber liegt im Image unter `plugins/BFFA01/drivers/`.
 
 Hologramme bleiben aus, bis `holograms.enabled` wahr ist. `holograms.backend` ist `auto`, `decentholograms`, `fancyholograms` oder `armorstand`. `auto` nimmt DecentHolograms, dann FancyHolograms, sonst Rüstungsständer am aktuellen Spawn. Die Zeilen laufen durch dasselbe Theme wie Scoreboard und Sprache.
 
@@ -137,7 +188,7 @@ Theme, überall dort, wo eine Zeile durch die Anzeige läuft, inklusive Sprachda
 
 PlaceholderAPI hängt die `%` um `bffa_<parameter>`:
 
-`kills`, `deaths`, `kd`, `coins`, `streak`, `rank`, `map`, `kit`, `prefix`, `bedrock`, `protocol`, `client`, `vault`, `online`, `damage`, `damage_taken`, `life_damage`, `life_taken`, `assists`, `kills_<name>`, `deaths_<name>`, `kd_<name>`, `coins_<name>`, `streak_<name>`, `rank_<name>`, `damage_<name>`, `damage_taken_<name>`, `top_name_<n>`, `top_kills_<n>`, `top_kd_<n>`, `top_damage_<n>`, `top_damage_name_<n>`.
+`kills`, `deaths`, `kd`, `coins`, `streak`, `rank`, `map`, `kit`, `prefix`, `bedrock`, `protocol`, `client`, `vault`, `online`, `damage`, `damage_taken`, `life_damage`, `life_taken`, `assists`, `network_servers`, `network_players`, `network_id`, `kills_<name>`, `deaths_<name>`, `kd_<name>`, `coins_<name>`, `streak_<name>`, `rank_<name>`, `damage_<name>`, `damage_taken_<name>`, `top_name_<n>`, `top_kills_<n>`, `top_kd_<n>`, `top_damage_<n>`, `top_damage_name_<n>`.
 
 MiniPlaceholders nutzt dieselben Namen: `<bffa_kills>`, `<bffa_map>`, `<bffa_top_name:1>`.
 
@@ -156,13 +207,23 @@ Diese Events sind nicht abbrechbar. Die Stats sind dann schon geschrieben:
 - `BuildFFAPurchaseEvent`
 - `BuildFFAReloadEvent` (`isStorageReconnected()` sagt, ob der Speicherwechsel geklappt hat)
 
-## Damage and multi-server (English)
+## Damage and autoscaling (English)
 
 Damage dealt and taken is stored in hundredths of a health point, for the whole lifetime and for the current life. A hit counts health actually removed plus absorption consumed. Overkill is dropped. Void below the map death height is credited to the last attacker inside `damage.assist-seconds` (default 12). Assists are other players in that window who dealt at least `damage.assist-minimum` (default 2.0).
 
 Live numbers use a TextDisplay when the server has one, otherwise a marker armor stand tagged `bffa_damage`. They expire, merge hits inside `damage.merge-millis`, and stay capped at four per victim. The action bar shows the hit, the running total on that target, and remaining health. Crits and sweep attacks use their own theme lines. A short summary is sent after a kill or death. Turn the whole display off with `damage.enabled: false`, individual channels under `presentation.yml` `damage:`, or per player in `/settings`.
 
-One server needs no new config: `network.enabled` defaults to false. For several servers behind a proxy, set `storage.type: mysql` to the same database, `network.enabled: true`, and a distinct `network.server-id` on each machine. Optional Redis (`network.redis.host`) publishes streak milestones and leaderboard refreshes. `network.messenger` also sends them on plugin channel `bffa:net` when the proxy forwards that channel. Players are reloaded on join and saved on quit so a server switch does not lose the row. `/bffa network` prints the id, storage, and Redis state.
+One YAML or SQLite server needs no network settings. `network.enabled: auto` (the shipped default) turns the cluster on when `storage.type` is `mysql` or `mariadb`. An existing file with `enabled: false` stays local. Copies of one image share the file; environment variables override it in memory:
+
+`BFFA_STORAGE_TYPE`, `BFFA_MYSQL_HOST`, `BFFA_MYSQL_PORT`, `BFFA_MYSQL_DATABASE`, `BFFA_MYSQL_USERNAME`, `BFFA_MYSQL_PASSWORD`, `BFFA_MYSQL_PARAMETERS`, `BFFA_NETWORK` (`auto`, `true`, `false`), `BFFA_SERVER_ID`, `BFFA_REDIS_HOST`, `BFFA_REDIS_PORT`, `BFFA_REDIS_PASSWORD`, `BFFA_REDIS_CHANNEL`, `BFFA_LANGUAGE`.
+
+Instance ids are not read from `network.server-id` or `server-id.txt`. The process uses `BFFA_SERVER_ID`, then `POD_NAME` or `HOSTNAME` when that name is specific. If neither variable is set, it uses the operating-system hostname. Otherwise it uses a random id for this boot. If that id is already heartbeating, the process takes a new one. A killed process drops out of `bffa_instance` after 15 seconds, and its player leases can be taken. Schema setup uses `GET_LOCK('bffa_schema')` and idempotent DDL. Kills, deaths, coins, damage, and assists are added with `column = column + delta`. Kit, name, streak, and display settings are written only by the lease holder.
+
+Discord, map rotation, holograms, the sidebar, and bStats stay on the instance where the event happened, so one kill does not fan out to one webhook per replica. bStats still reports every process, because each process is a server. Streak lines published on Redis or plugin channel `bffa:net` are shown once per process. The proxy registers backends itself; this plugin does not talk to Velocity or BungeeCord.
+
+If MySQL is down at startup, stats are kept in `mysql-buffer.yml` and added to the shared rows when the database returns. Redis reconnects in the background. `/bffa network` lists live instances. Placeholders: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
+
+Scale the same container with `docker compose up --scale bffa=3` or a Deployment of `replicas: 3`. Point every replica at one MariaDB (and optional Redis) with the variables above. Use a TCP readiness probe on `25565`. Put the MariaDB driver in `plugins/BFFA01/drivers/`. The database should be ready first; the plugin retries the first connection five times.
 
 ## Bauen
 
@@ -174,7 +235,7 @@ Das Compiler-Ziel ist Java 17. Ein JDK 17 oder neuer kann bauen.
 ./mvnw verify
 ```
 
-Das Plugin-Jar ist `target/BFFA01-<version>.jar`. Die Version steht in `pom.xml` (aktuell 3.7). `target/` ist gitignored. Adventure wird geshadet und verschoben. SQLite-JDBC liegt neben den Plugin-Klassen. PlaceholderAPI-Stubs werden nicht ins Jar gepackt.
+Das Plugin-Jar ist `target/BFFA01-<version>.jar`. Die Version steht in `pom.xml` (aktuell 3.8). `target/` ist gitignored. Adventure wird geshadet und verschoben. SQLite-JDBC liegt neben den Plugin-Klassen. PlaceholderAPI-Stubs werden nicht ins Jar gepackt.
 
 Die Paper-API-Abhängigkeit ist der feste Build `1.20.4-R0.1-20241030.192207-176`. Vertrauenswürdige Maven-Resolver-Prüfsummen in `.mvn/` decken jedes aufgelöste Artefakt ab, und der Build prüft die SHA-512 dieses Jars.
 

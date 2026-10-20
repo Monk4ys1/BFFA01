@@ -107,4 +107,78 @@ class JdbcPlayerRepositoryTest {
         config.set("storage.mysql.parameters", "useSSL=false&allowLoadLocalInfile=true&statementInterceptors=evil");
         assertEquals("useSSL=false", StorageSettings.resolve(config).mysqlParameters());
     }
+
+    @Test
+    void twoConnectionsAddKillsInsteadOfOverwriting() throws Exception {
+        StorageSettings settings = sqlite("shared.db");
+        UUID id = UUID.randomUUID();
+        try (JdbcPlayerRepository first = JdbcPlayerRepository.open(settings, tempDir);
+             JdbcPlayerRepository second = JdbcPlayerRepository.open(settings, tempDir)) {
+            assertEquals("alpha-one", first.claimInstance("alpha-one"));
+            String other = second.claimInstance("alpha-one");
+            assertTrue(!other.equals("alpha-one"));
+            first.applyDelta(new CountDelta(id, 1, 0, 4, 0, 100L, 0L, 100L, 0L));
+            second.applyDelta(new CountDelta(id, 1, 1, 3, 1, 50L, 20L, 50L, 20L));
+            PlayerRecord stored = first.loadOne(id);
+            assertEquals(2, stored.kills());
+            assertEquals(1, stored.deaths());
+            assertEquals(7, stored.coins());
+            assertEquals(1, stored.assists());
+            assertEquals(150L, stored.damageDealt());
+            assertEquals(20L, stored.damageTaken());
+        }
+    }
+
+    @Test
+    void aLiveLeaseBlocksProfileOverwriteUntilTheHeartbeatIsStale() throws Exception {
+        StorageSettings settings = sqlite("lease.db");
+        UUID id = UUID.randomUUID();
+        try (JdbcPlayerRepository first = JdbcPlayerRepository.open(settings, tempDir);
+             JdbcPlayerRepository second = JdbcPlayerRepository.open(settings, tempDir)) {
+            first.claimInstance("alpha");
+            second.claimInstance("beta");
+            first.heartbeat(1);
+            PlayerRecord owned = new PlayerRecord(id);
+            owned.name("Alpha");
+            owned.addKill();
+            owned.layout(0, "STONE");
+            first.saveAll(List.of(owned));
+
+            PlayerRecord incoming = new PlayerRecord(id);
+            incoming.name("Beta");
+            incoming.layout(0, "DIRT");
+            assertTrue(!second.saveProfile(incoming));
+            assertEquals("Alpha", first.loadOne(id).name());
+            assertEquals("STONE", first.loadOne(id).layout(0));
+
+            try (java.sql.Connection raw = java.sql.DriverManager.getConnection(
+                    "jdbc:sqlite:" + tempDir.resolve("lease.db").toAbsolutePath())) {
+                raw.createStatement().execute("UPDATE bffa_instance SET beat=0 WHERE id='alpha'");
+            }
+            assertTrue(second.saveProfile(incoming));
+            assertEquals("Beta", second.loadOne(id).name());
+            assertEquals("DIRT", second.loadOne(id).layout(0));
+            assertEquals(1, second.loadOne(id).kills());
+        }
+    }
+
+    @Test
+    void openingTheSameDatabaseTwiceKeepsTheMigratedTable() throws Exception {
+        StorageSettings settings = sqlite("twice.db");
+        try (JdbcPlayerRepository first = JdbcPlayerRepository.open(settings, tempDir)) {
+            first.claimInstance("once");
+            first.retire();
+        }
+        try (JdbcPlayerRepository second = JdbcPlayerRepository.open(settings, tempDir)) {
+            assertEquals("once", second.claimInstance("once"));
+            assertEquals(0, second.loadAll().size());
+        }
+    }
+
+    private StorageSettings sqlite(String file) {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("storage.type", "sqlite");
+        config.set("storage.sqlite.file", file);
+        return StorageSettings.resolve(config);
+    }
 }

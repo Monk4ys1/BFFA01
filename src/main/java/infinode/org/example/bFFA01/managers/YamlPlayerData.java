@@ -36,11 +36,14 @@ final class YamlPlayerData implements PlayerData {
     private int consecutiveFailures;
 
     YamlPlayerData(BFFA01 plugin) {
+        this(plugin, plugin.getDataFolder().toPath().resolve("data.yml"));
+    }
+
+    YamlPlayerData(BFFA01 plugin, Path dataFile) {
         this.plugin = plugin;
-        Path dataFile = plugin.getDataFolder().toPath().resolve("data.yml");
         this.store = AtomicYamlStore.open(dataFile);
         if (store.hadLoadError()) {
-            plugin.getLogger().severe("Refusing to load data.yml. Saves are disabled so the existing file is not overwritten.");
+            plugin.getLogger().severe("Refusing to load " + dataFile.getFileName() + ". Saves are disabled so the existing file is not overwritten.");
             preserveCorruptFile(dataFile);
             return;
         }
@@ -48,7 +51,7 @@ final class YamlPlayerData implements PlayerData {
             try {
                 store.writeSnapshot(store.saveToString());
             } catch (IOException ex) {
-                plugin.getLogger().severe("Could not create data.yml: " + ex.getMessage());
+                plugin.getLogger().severe("Could not create " + dataFile.getFileName() + ": " + ex.getMessage());
             }
         }
     }

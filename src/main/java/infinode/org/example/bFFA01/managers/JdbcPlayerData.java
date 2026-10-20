@@ -4,6 +4,9 @@ import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.BukkitRunners;
 import infinode.org.example.bFFA01.compat.TaskRunner;
 import infinode.org.example.bFFA01.config.StorageSettings;
+import infinode.org.example.bFFA01.network.ClusterSnapshot;
+import infinode.org.example.bFFA01.network.InstanceIds;
+import infinode.org.example.bFFA01.storage.CountDelta;
 import infinode.org.example.bFFA01.storage.JdbcPlayerRepository;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import infinode.org.example.bFFA01.storage.PlayerRecord;
@@ -12,6 +15,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 
+import java.io.File;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,6 +35,7 @@ final class JdbcPlayerData implements PlayerData {
     private final BFFA01 plugin;
     private final JdbcPlayerRepository repository;
     private final ConcurrentHashMap<UUID, PlayerRecord> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, PlayerRecord> baseline = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> dirtyGen = new ConcurrentHashMap<>();
     private final DirtySaveGate gate = new DirtySaveGate();
     private final Object writeLock = new Object();
@@ -41,11 +46,28 @@ final class JdbcPlayerData implements PlayerData {
     private volatile boolean closed;
 
     JdbcPlayerData(BFFA01 plugin, StorageSettings settings) throws SQLException {
+        this(plugin, settings, settings.type() == StorageSettings.Type.SQLITE ? 1 : 5);
+    }
+
+    JdbcPlayerData(BFFA01 plugin, StorageSettings settings, int attempts) throws SQLException {
         this.plugin = plugin;
-        this.repository = JdbcPlayerRepository.open(settings, plugin.getDataFolder().toPath());
-        this.repository.lease(infinode.org.example.bFFA01.network.ServerIds.current(plugin), 30_000L);
+        this.repository = JdbcPlayerRepository.open(settings, plugin.getDataFolder().toPath(), attempts);
+        String preferred = InstanceIds.propose();
+        String claimed = repository.claimInstance(preferred);
+        InstanceIds.adopt(claimed);
+        repository.lease(claimed, 20_000L);
+        if (preferred.equals(claimed)) {
+            plugin.getLogger().info("Instance id " + claimed + ".");
+        } else {
+            plugin.getLogger().warning("Instance id " + preferred + " is already live. This process is " + claimed + ".");
+        }
+        File shared = new File(plugin.getDataFolder(), "server-id.txt");
+        if (shared.isFile()) {
+            plugin.getLogger().warning("Ignoring server-id.txt. A copied data folder must not make two instances share an id.");
+        }
         for (PlayerRecord record : repository.loadAll()) {
             cache.put(record.id(), record);
+            baseline.put(record.id(), record.copy());
         }
     }
 
@@ -333,9 +355,28 @@ final class JdbcPlayerData implements PlayerData {
             return;
         }
         try {
+            PlayerRecord pending = cache.get(uuid);
+            if (pending != null && dirtyGen.containsKey(uuid)) {
+                synchronized (writeLock) {
+                    persist(List.of(pending.copy()));
+                }
+            }
+            int claim = repository.claimPlayer(uuid);
+            int waits = 0;
+            while (claim < 0 && waits < 8) {
+                waits++;
+                try {
+                    Thread.sleep(40L);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                claim = repository.claimPlayer(uuid);
+            }
             PlayerRecord loaded = repository.loadOne(uuid);
             if (loaded != null) {
                 cache.put(uuid, loaded);
+                baseline.put(uuid, loaded.copy());
                 dirtyGen.remove(uuid);
             }
         } catch (SQLException ex) {
@@ -354,7 +395,7 @@ final class JdbcPlayerData implements PlayerData {
         synchronized (writeLock) {
             try {
                 if (record != null) {
-                    repository.saveAll(List.of(record.copy()));
+                    persist(List.of(record.copy()));
                 }
                 repository.release(uuid);
                 dirtyGen.remove(uuid);
@@ -398,6 +439,7 @@ final class JdbcPlayerData implements PlayerData {
                     continue;
                 }
                 cache.put(loaded.id(), loaded);
+                baseline.put(loaded.id(), loaded.copy());
             }
         } catch (SQLException ex) {
             plugin.getLogger().warning("Could not refresh shared stats: " + ex.getMessage());
@@ -431,7 +473,8 @@ final class JdbcPlayerData implements PlayerData {
         synchronized (writeLock) {
             latestGeneration++;
             try {
-                repository.saveAll(snapshot);
+                persist(snapshot);
+                repository.retire();
             } catch (SQLException ex) {
                 plugin.getLogger().severe("Could not save the SQL store during shutdown: " + ex.getMessage());
             }
@@ -502,6 +545,176 @@ final class JdbcPlayerData implements PlayerData {
         return copies;
     }
 
+    @Override
+    public ClusterSnapshot clusterView() {
+        try {
+            return repository.cluster();
+        } catch (SQLException ex) {
+            return ClusterSnapshot.alone(InstanceIds.current());
+        }
+    }
+
+    @Override
+    public ClusterSnapshot heartbeat(int players) {
+        if (closed) {
+            return null;
+        }
+        try {
+            ClusterSnapshot snapshot = repository.heartbeat(Math.max(0, players));
+            if (snapshot != null) {
+                InstanceIds.adopt(snapshot.selfId());
+            }
+            return snapshot;
+        } catch (SQLException ex) {
+            plugin.getLogger().warning("Instance heartbeat failed: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    public void absorb(org.bukkit.configuration.file.FileConfiguration config) throws SQLException {
+        if (config == null) {
+            return;
+        }
+        synchronized (writeLock) {
+            for (String key : config.getKeys(false)) {
+                if (key.length() != 36) {
+                    continue;
+                }
+                UUID id;
+                try {
+                    id = UUID.fromString(key);
+                } catch (IllegalArgumentException ex) {
+                    continue;
+                }
+                CountDelta delta = new CountDelta(id,
+                        config.getInt(key + ".kills", 0),
+                        config.getInt(key + ".deaths", 0),
+                        config.getInt(key + ".coins", 0),
+                        config.getInt(key + ".assists", 0),
+                        config.getLong(key + ".damage-dealt", 0L),
+                        config.getLong(key + ".damage-taken", 0L),
+                        config.getLong(key + ".life-dealt", 0L),
+                        config.getLong(key + ".life-taken", 0L));
+                repository.applyDelta(delta);
+                PlayerRecord profile = new PlayerRecord(id);
+                String name = config.getString(key + ".name", "");
+                profile.name(name);
+                profile.streak(config.getInt(key + ".streak", 0));
+                profile.prefs(config.getString(key + ".prefs", ""));
+                for (String upgrade : config.getStringList(key + ".upgrades")) {
+                    profile.addUpgrade(upgrade);
+                }
+                for (int slot = 0; slot < 9; slot++) {
+                    String material = config.getString(key + ".layout." + slot);
+                    if (material != null) {
+                        profile.layout(slot, material);
+                    }
+                }
+                repository.saveProfile(profile);
+            }
+            cache.clear();
+            baseline.clear();
+            dirtyGen.clear();
+            for (PlayerRecord record : repository.loadAll()) {
+                cache.put(record.id(), record);
+                baseline.put(record.id(), record.copy());
+            }
+        }
+    }
+
+    private boolean persist(List<PlayerRecord> snapshots) throws SQLException {
+        boolean complete = true;
+        if (snapshots == null) {
+            return true;
+        }
+        for (PlayerRecord snapshot : snapshots) {
+            if (snapshot == null || snapshot.id() == null) {
+                continue;
+            }
+            if (!persistOne(snapshot)) {
+                complete = false;
+            }
+        }
+        return complete;
+    }
+
+    private boolean persistOne(PlayerRecord snap) throws SQLException {
+        PlayerRecord base = baseline.computeIfAbsent(snap.id(), PlayerRecord::new);
+        PlayerRecord before = base.copy();
+        boolean reset = snap.kills() < before.kills()
+                || snap.deaths() < before.deaths()
+                || snap.assists() < before.assists()
+                || snap.damageDealt() < before.damageDealt()
+                || snap.damageTaken() < before.damageTaken();
+        if (reset) {
+            repository.resetCounters(snap.id());
+            base.resetStats();
+        }
+        boolean lifeReset = !reset && (snap.lifeDealt() < before.lifeDealt() || snap.lifeTaken() < before.lifeTaken());
+        int killDelta = reset ? snap.kills() : snap.kills() - before.kills();
+        int deathDelta = reset ? snap.deaths() : snap.deaths() - before.deaths();
+        int assistDelta = reset ? snap.assists() : snap.assists() - before.assists();
+        long dealtDelta = reset ? snap.damageDealt() : snap.damageDealt() - before.damageDealt();
+        long takenDelta = reset ? snap.damageTaken() : snap.damageTaken() - before.damageTaken();
+        long lifeDealtDelta;
+        long lifeTakenDelta;
+        if (lifeReset) {
+            if (!repository.clearLife(snap.id())) {
+                return false;
+            }
+            base.clearLifeBaseline();
+            lifeDealtDelta = snap.lifeDealt();
+            lifeTakenDelta = snap.lifeTaken();
+        } else if (reset) {
+            lifeDealtDelta = snap.lifeDealt();
+            lifeTakenDelta = snap.lifeTaken();
+        } else {
+            lifeDealtDelta = snap.lifeDealt() - before.lifeDealt();
+            lifeTakenDelta = snap.lifeTaken() - before.lifeTaken();
+        }
+        CountDelta delta = new CountDelta(snap.id(),
+                Math.max(0, killDelta),
+                Math.max(0, deathDelta),
+                snap.coins() - before.coins(),
+                Math.max(0, assistDelta),
+                Math.max(0L, dealtDelta),
+                Math.max(0L, takenDelta),
+                Math.max(0L, lifeDealtDelta),
+                Math.max(0L, lifeTakenDelta));
+        repository.applyDelta(delta);
+        base.addStored(delta.kills(), delta.deaths(), delta.coins(), delta.assists(),
+                delta.dealt(), delta.taken(), delta.lifeDealt(), delta.lifeTaken());
+        if (!profileChanged(before, snap)) {
+            return true;
+        }
+        if (!repository.saveProfile(snap)) {
+            return false;
+        }
+        String[] layout = new String[9];
+        for (int slot = 0; slot < 9; slot++) {
+            layout[slot] = snap.layout(slot);
+        }
+        base.mirrorProfile(snap.name(), snap.streak(), snap.prefs(), snap.upgrades(), layout);
+        return true;
+    }
+
+    private static boolean profileChanged(PlayerRecord before, PlayerRecord snap) {
+        if (!before.name().equals(snap.name()) || before.streak() != snap.streak() || !before.prefs().equals(snap.prefs())) {
+            return true;
+        }
+        if (!before.upgrades().equals(snap.upgrades())) {
+            return true;
+        }
+        for (int slot = 0; slot < 9; slot++) {
+            String left = before.layout(slot) == null ? "" : before.layout(slot);
+            String right = snap.layout(slot) == null ? "" : snap.layout(slot);
+            if (!left.equals(right)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void writeAsync(long generation, List<PlayerRecord> snapshot, Map<UUID, Integer> generations) {
         SQLException error = null;
         boolean retry = false;
@@ -511,13 +724,14 @@ final class JdbcPlayerData implements PlayerData {
                 return;
             }
             try {
-                repository.saveAll(snapshot);
-                if (generations != null) {
+                boolean complete = persist(snapshot);
+                if (generations != null && complete) {
                     for (Map.Entry<UUID, Integer> entry : generations.entrySet()) {
                         dirtyGen.remove(entry.getKey(), entry.getValue());
                     }
                 }
                 consecutiveFailures = 0;
+                retry = !complete;
             } catch (SQLException ex) {
                 error = ex;
                 retry = true;
@@ -532,7 +746,9 @@ final class JdbcPlayerData implements PlayerData {
         SQLException failed = error;
         long delay = retryDelay;
         tasks().runSync(() -> {
-            plugin.getLogger().warning("Failed to save the SQL store: " + failed.getMessage());
+            if (failed != null) {
+                plugin.getLogger().warning("Failed to save the SQL store: " + failed.getMessage());
+            }
             if (plugin.isEnabled()) {
                 requestSave(delay);
             }

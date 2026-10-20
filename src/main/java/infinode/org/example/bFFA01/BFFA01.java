@@ -10,6 +10,7 @@ import infinode.org.example.bFFA01.commands.StatsCommand;
 import infinode.org.example.bFFA01.compat.ServerRuntime;
 import infinode.org.example.bFFA01.compat.ServerScheduler;
 import infinode.org.example.bFFA01.config.ConfigMigrator;
+import infinode.org.example.bFFA01.config.EnvOverlay;
 import infinode.org.example.bFFA01.api.BuildFFA;
 import infinode.org.example.bFFA01.api.BuildFFAProvider;
 import infinode.org.example.bFFA01.hooks.IntegrationBus;
@@ -84,6 +85,7 @@ public final class BFFA01 extends JavaPlugin {
         saveDefaultConfig();
         ConfigMigrator.migrate(new File(getDataFolder(), "config.yml"), getLogger());
         reloadConfig();
+        EnvOverlay.apply(getConfig());
         saveLanguage("en");
         saveLanguage("de");
 
@@ -115,6 +117,7 @@ public final class BFFA01 extends JavaPlugin {
 
         dataManager = new DataManager(this);
         dataManager.useRunner(scheduler);
+        scheduler.runTimer(() -> dataManager.heartbeat(onlinePlayers()), 100L, 100L);
         combat = new CombatTracker();
         damageFeedback = new DamageFeedback(this);
         network = new NetworkLink(this);
@@ -162,6 +165,14 @@ public final class BFFA01 extends JavaPlugin {
         getLogger().info("Active integrations: " + active);
     }
 
+    private int onlinePlayers() {
+        try {
+            return getServer().getOnlinePlayers().size();
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
     @Override
     public void onDisable() {
         try {
@@ -204,6 +215,7 @@ public final class BFFA01 extends JavaPlugin {
 
     public boolean reloadPluginConfig() {
         reloadConfig();
+        EnvOverlay.apply(getConfig());
         messages = Messages.load(getDataFolder().toPath(), getConfig().getString("language", "en"), getConfig());
         if (presentation != null) {
             presentation.reload();

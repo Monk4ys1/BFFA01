@@ -156,6 +156,61 @@ public final class PlayerRecord {
         lifeTaken = 0;
     }
 
+    public synchronized void addStored(int kills, int deaths, int coins, int assists,
+                                       long dealt, long taken, long lifeDealt, long lifeTaken) {
+        this.kills = clampInt(this.kills, kills);
+        this.deaths = clampInt(this.deaths, deaths);
+        long nextCoins = (long) this.coins + coins;
+        if (nextCoins < 0L) {
+            nextCoins = 0L;
+        } else if (nextCoins > Integer.MAX_VALUE) {
+            nextCoins = Integer.MAX_VALUE;
+        }
+        this.coins = (int) nextCoins;
+        this.assists = clampInt(this.assists, assists);
+        if (dealt > 0L) {
+            this.damageDealt = saturate(this.damageDealt, dealt);
+        }
+        if (taken > 0L) {
+            this.damageTaken = saturate(this.damageTaken, taken);
+        }
+        if (lifeDealt > 0L) {
+            this.lifeDealt = saturate(this.lifeDealt, lifeDealt);
+        }
+        if (lifeTaken > 0L) {
+            this.lifeTaken = saturate(this.lifeTaken, lifeTaken);
+        }
+    }
+
+    public synchronized void clearLifeBaseline() {
+        lifeDealt = 0L;
+        lifeTaken = 0L;
+    }
+
+    public synchronized void mirrorProfile(String name, int streak, String prefs, Set<String> upgrades, String[] layout) {
+        this.name = name == null ? "" : name;
+        this.streak = Math.max(0, streak);
+        this.prefs = prefs == null ? "" : prefs;
+        this.upgrades.clear();
+        if (upgrades != null) {
+            this.upgrades.addAll(upgrades);
+        }
+        if (layout != null) {
+            System.arraycopy(layout, 0, this.layout, 0, Math.min(layout.length, this.layout.length));
+        }
+    }
+
+    private static int clampInt(int current, int delta) {
+        long updated = (long) current + delta;
+        if (updated < 0L) {
+            return 0;
+        }
+        if (updated > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) updated;
+    }
+
     synchronized void loadCounts(int kills, int deaths, int coins) {
         this.kills = Math.max(0, kills);
         this.deaths = Math.max(0, deaths);

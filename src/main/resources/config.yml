@@ -99,7 +99,10 @@ damage:
 # Redis is optional and carries streak broadcasts plus leaderboard refreshes.
 # network.messenger also sends them on the bffa:net plugin channel when a proxy forwards it.
 network:
-  enabled: false
+  # false stays local. true always joins the cluster.
+  # auto joins when storage.type is mysql or mariadb, so one image can scale without a per-pod edit.
+  enabled: auto
+  # Ignored. Identity comes from BFFA_SERVER_ID, then POD_NAME or HOSTNAME when that name is unique, otherwise a random id per boot.
   server-id: ""
   leaderboard-seconds: 30
   messenger: true
