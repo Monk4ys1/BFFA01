@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
@@ -400,6 +401,15 @@ public final class JdbcPlayerRepository implements AutoCloseable {
      * @return false when this id was already committed, so a retried file does not add the counters again
      */
     public boolean applyBuffer(String bufferId, List<CountDelta> deltas, List<PlayerRecord> profiles) throws SQLException {
+        return applyBuffer(bufferId, deltas, profiles, Set.of(), Set.of());
+    }
+
+    /**
+     * @param resetIds rows whose counters are set to the delta values, inside the same transaction
+     * @param lifeResetIds rows whose current-life damage is cleared before the delta is added
+     */
+    public boolean applyBuffer(String bufferId, List<CountDelta> deltas, List<PlayerRecord> profiles,
+                               Set<UUID> resetIds, Set<UUID> lifeResetIds) throws SQLException {
         if (bufferId == null || bufferId.isBlank() || bufferId.length() > 36) {
             throw new SQLException("buffer id is missing");
         }
@@ -419,6 +429,18 @@ public final class JdbcPlayerRepository implements AutoCloseable {
                         return false;
                     }
                     throw ex;
+                }
+                if (resetIds != null) {
+                    for (UUID id : resetIds) {
+                        resetCounters(id);
+                    }
+                }
+                if (lifeResetIds != null) {
+                    for (UUID id : lifeResetIds) {
+                        if (resetIds == null || !resetIds.contains(id)) {
+                            clearLife(id);
+                        }
+                    }
                 }
                 if (deltas != null) {
                     for (CountDelta delta : deltas) {

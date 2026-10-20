@@ -10,6 +10,7 @@ import infinode.org.example.bFFA01.storage.CountDelta;
 import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.JdbcPlayerRepository;
 import infinode.org.example.bFFA01.storage.KillEntry;
+import infinode.org.example.bFFA01.storage.OutageBuffer;
 import infinode.org.example.bFFA01.storage.PlayerRecord;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -45,7 +46,15 @@ final class JdbcPlayerData implements PlayerData {
     private final java.util.Set<UUID> absent = ConcurrentHashMap.newKeySet();
     private static final int BOARD_LIMIT = 100;
     private final DirtySaveGate gate = new DirtySaveGate();
+    private final boolean bufferOnOutage;
+    private volatile boolean offline;
+    private volatile Runnable outageNotice = () -> {
+    };
     private final Object writeLock = new Object();
+    /** Drained while the database is down. {@code flush} and the async save both publish this list. */
+    private final List<OutageBuffer.Spill> pendingSpills = new ArrayList<>();
+    /** Held for the whole file write so {@code flush} returns only after those spills are on disk. */
+    private final Object spillLock = new Object();
     private TaskRunner runner;
     private TaskRunner.Cancellable pending = TaskRunner.Cancellable.NONE;
     private long latestGeneration;
@@ -58,6 +67,7 @@ final class JdbcPlayerData implements PlayerData {
 
     JdbcPlayerData(BFFA01 plugin, StorageSettings settings, int attempts) throws SQLException {
         this.plugin = plugin;
+        this.bufferOnOutage = settings.type() == StorageSettings.Type.MYSQL;
         this.repository = JdbcPlayerRepository.open(settings, plugin.getDataFolder().toPath(), attempts);
         String preferred = InstanceIds.propose();
         String claimed = repository.claimInstance(preferred);
@@ -530,6 +540,15 @@ final class JdbcPlayerData implements PlayerData {
         repository.close();
     }
 
+    void onOutage(Runnable notice) {
+        outageNotice = notice == null ? () -> {
+        } : notice;
+    }
+
+    boolean buffering() {
+        return offline;
+    }
+
     @Override
     public void flush() {
         if (closed) {
@@ -539,16 +558,40 @@ final class JdbcPlayerData implements PlayerData {
         pending = TaskRunner.Cancellable.NONE;
         gate.clear();
         List<PlayerRecord> snapshot = snapshot(new HashMap<>());
+        boolean enteredOutage = false;
         synchronized (writeLock) {
             presence.clear();
             latestGeneration++;
             try {
-                persist(snapshot);
-                repository.retire();
+                if (offline) {
+                    keep(drain());
+                } else {
+                    persist(snapshot);
+                }
             } catch (SQLException ex) {
-                plugin.getLogger().severe("Could not save the SQL store during shutdown: " + ex.getMessage());
+                if (bufferOnOutage && OutageBuffer.unavailable(ex)) {
+                    enteredOutage = !offline;
+                    offline = true;
+                    keep(drain());
+                } else {
+                    plugin.getLogger().severe("Could not save the SQL store during shutdown: " + ex.getMessage());
+                }
+            }
+            try {
+                if (!offline) {
+                    repository.retire();
+                }
+            } catch (SQLException ex) {
+                plugin.getLogger().warning("Could not retire this instance: " + ex.getMessage());
             }
         }
+        if (enteredOutage) {
+            plugin.getLogger().warning("MySQL is not reachable. Unsaved stats are in mysql-buffer.yml until it returns.");
+        }
+        if (enteredOutage || offline) {
+            outageNotice.run();
+        }
+        writeBuffer();
     }
 
     private int bump(UUID uuid) {
@@ -752,9 +795,18 @@ final class JdbcPlayerData implements PlayerData {
             ClusterSnapshot snapshot = repository.heartbeat(Math.max(0, players));
             if (snapshot != null) {
                 InstanceIds.adopt(snapshot.selfId());
+                if (offline) {
+                    offline = false;
+                    plugin.getLogger().info("MySQL is accepting writes again.");
+                }
+                writeBuffer();
             }
             return snapshot;
         } catch (SQLException ex) {
+            if (bufferOnOutage && OutageBuffer.unavailable(ex)) {
+                offline = true;
+                outageNotice.run();
+            }
             plugin.getLogger().warning("Instance heartbeat failed: " + ex.getMessage());
             return null;
         }
@@ -776,6 +828,8 @@ final class JdbcPlayerData implements PlayerData {
         List<CountDelta> deltas = new ArrayList<>();
         List<PlayerRecord> profiles = new ArrayList<>();
         List<UUID> ids = new ArrayList<>();
+        Set<UUID> resets = new HashSet<>();
+        Set<UUID> lifeResets = new HashSet<>();
         for (String key : config.getKeys(false)) {
             if (key.length() != 36) {
                 continue;
@@ -810,8 +864,14 @@ final class JdbcPlayerData implements PlayerData {
             }
             profiles.add(profile);
             ids.add(id);
+            if (config.getBoolean(key + ".reset", false)) {
+                resets.add(id);
+            }
+            if (config.getBoolean(key + ".life-reset", false)) {
+                lifeResets.add(id);
+            }
         }
-        boolean applied = repository.applyBuffer(bufferId, deltas, profiles);
+        boolean applied = repository.applyBuffer(bufferId, deltas, profiles, resets, lifeResets);
         synchronized (writeLock) {
             for (UUID id : ids) {
                 if (dirtyGen.containsKey(id)) {
@@ -942,26 +1002,42 @@ final class JdbcPlayerData implements PlayerData {
         SQLException error = null;
         boolean retry = false;
         long retryDelay = DataManager.SAVE_DELAY_TICKS;
+        boolean enteredOutage = false;
         synchronized (writeLock) {
             if (closed || generation != latestGeneration) {
                 return;
             }
             try {
-                boolean complete = persist(snapshot);
-                if (generations != null && complete) {
-                    for (Map.Entry<UUID, Integer> entry : generations.entrySet()) {
-                        dirtyGen.remove(entry.getKey(), entry.getValue());
+                if (offline) {
+                    keep(drain());
+                } else {
+                    boolean complete = persist(snapshot);
+                    if (generations != null && complete) {
+                        for (Map.Entry<UUID, Integer> entry : generations.entrySet()) {
+                            dirtyGen.remove(entry.getKey(), entry.getValue());
+                        }
                     }
+                    consecutiveFailures = 0;
+                    retry = !complete;
                 }
-                consecutiveFailures = 0;
-                retry = !complete;
             } catch (SQLException ex) {
-                error = ex;
-                retry = true;
-                consecutiveFailures++;
-                retryDelay = DataManager.backoffTicks(consecutiveFailures);
+                if (bufferOnOutage && OutageBuffer.unavailable(ex)) {
+                    enteredOutage = !offline;
+                    offline = true;
+                    keep(drain());
+                } else {
+                    error = ex;
+                    retry = true;
+                    consecutiveFailures++;
+                    retryDelay = DataManager.backoffTicks(consecutiveFailures);
+                }
             }
         }
+        if (enteredOutage) {
+            plugin.getLogger().warning("MySQL is not reachable. Unsaved stats are in mysql-buffer.yml until it returns.");
+            outageNotice.run();
+        }
+        writeBuffer();
         if (!retry) {
             return;
         }
@@ -976,5 +1052,81 @@ final class JdbcPlayerData implements PlayerData {
                 requestSave(delay);
             }
         });
+    }
+
+    private List<OutageBuffer.Spill> drain() {
+        List<OutageBuffer.Spill> spills = new ArrayList<>();
+        for (UUID id : new ArrayList<>(dirtyGen.keySet())) {
+            PlayerRecord snap = cache.get(id);
+            dirtyGen.remove(id);
+            if (snap == null || snap.id() == null) {
+                continue;
+            }
+            PlayerRecord before = baseline.get(id);
+            if (before == null) {
+                before = new PlayerRecord(id);
+            }
+            OutageBuffer.Spill spill = uncommitted(snap, before);
+            baseline.put(id, snap.copy());
+            if (spill != null) {
+                spills.add(spill);
+            }
+        }
+        return spills;
+    }
+
+    private static OutageBuffer.Spill uncommitted(PlayerRecord snap, PlayerRecord before) {
+        boolean reset = snap.kills() < before.kills()
+                || snap.deaths() < before.deaths()
+                || snap.assists() < before.assists()
+                || snap.damageDealt() < before.damageDealt()
+                || snap.damageTaken() < before.damageTaken();
+        boolean lifeReset = !reset && (snap.lifeDealt() < before.lifeDealt() || snap.lifeTaken() < before.lifeTaken());
+        int killDelta = reset ? snap.kills() : Math.max(0, snap.kills() - before.kills());
+        int deathDelta = reset ? snap.deaths() : Math.max(0, snap.deaths() - before.deaths());
+        int assistDelta = reset ? snap.assists() : Math.max(0, snap.assists() - before.assists());
+        long dealtDelta = reset ? snap.damageDealt() : Math.max(0L, snap.damageDealt() - before.damageDealt());
+        long takenDelta = reset ? snap.damageTaken() : Math.max(0L, snap.damageTaken() - before.damageTaken());
+        long lifeDealtDelta = (reset || lifeReset) ? snap.lifeDealt() : Math.max(0L, snap.lifeDealt() - before.lifeDealt());
+        long lifeTakenDelta = (reset || lifeReset) ? snap.lifeTaken() : Math.max(0L, snap.lifeTaken() - before.lifeTaken());
+        CountDelta delta = new CountDelta(snap.id(), killDelta, deathDelta, snap.coins() - before.coins(), assistDelta,
+                dealtDelta, takenDelta, lifeDealtDelta, lifeTakenDelta);
+        boolean profile = reset || profileChanged(before, snap);
+        if (!delta.any() && !profile && !lifeReset) {
+            return null;
+        }
+        return new OutageBuffer.Spill(delta, reset, lifeReset, profile ? snap.copy() : null);
+    }
+
+    private void keep(List<OutageBuffer.Spill> spills) {
+        if (spills == null || spills.isEmpty()) {
+            return;
+        }
+        pendingSpills.addAll(spills);
+    }
+
+    /**
+     * Writes spills drained by this thread or by an in-flight save. The list is taken under
+     * {@code writeLock} and the file is written after that lock is released.
+     */
+    private void writeBuffer() {
+        synchronized (spillLock) {
+            List<OutageBuffer.Spill> spills;
+            synchronized (writeLock) {
+                if (pendingSpills.isEmpty()) {
+                    return;
+                }
+                spills = new ArrayList<>(pendingSpills);
+                pendingSpills.clear();
+            }
+            try {
+                OutageBuffer.merge(plugin.getDataFolder().toPath().resolve("mysql-buffer.yml"), spills);
+            } catch (java.io.IOException ex) {
+                synchronized (writeLock) {
+                    pendingSpills.addAll(0, spills);
+                }
+                plugin.getLogger().severe("Could not write mysql-buffer.yml: " + ex.getMessage());
+            }
+        }
     }
 }
