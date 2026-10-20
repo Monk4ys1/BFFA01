@@ -6,6 +6,7 @@ import infinode.org.example.bFFA01.hooks.bedrock.BedrockForms;
 import infinode.org.example.bFFA01.shop.ShopCheckout;
 import infinode.org.example.bFFA01.shop.ShopOffer;
 import infinode.org.example.bFFA01.text.MiniText;
+import infinode.org.example.bFFA01.text.TextLines;
 import infinode.org.example.bFFA01.ui.Presentation;
 import infinode.org.example.bFFA01.util.KeyedCooldown;
 import infinode.org.example.bFFA01.util.MapNames;
@@ -98,6 +99,10 @@ public final class Menus {
             return;
         }
         if (!player.isOnline()) {
+            return;
+        }
+        if (!MenuAccess.allowed(player, action)) {
+            player.sendMessage(TextLines.render(plugin, "no-permission", "&cYou do not have permission to do that.", java.util.Map.of()));
             return;
         }
         if (action.startsWith("kit:") && action.length() == 5 && Character.isDigit(action.charAt(4))) {

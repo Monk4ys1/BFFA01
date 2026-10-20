@@ -7,6 +7,7 @@ import infinode.org.example.bFFA01.config.StorageSettings;
 import infinode.org.example.bFFA01.network.ClusterSnapshot;
 import infinode.org.example.bFFA01.network.InstanceIds;
 import infinode.org.example.bFFA01.storage.CountDelta;
+import infinode.org.example.bFFA01.storage.DamageEntry;
 import infinode.org.example.bFFA01.storage.JdbcPlayerRepository;
 import infinode.org.example.bFFA01.storage.KillEntry;
 import infinode.org.example.bFFA01.storage.PlayerRecord;
@@ -37,6 +38,8 @@ final class JdbcPlayerData implements PlayerData {
     private final ConcurrentHashMap<UUID, PlayerRecord> cache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, PlayerRecord> baseline = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> dirtyGen = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Integer> presence = new ConcurrentHashMap<>();
+    private static final int BOARD_LIMIT = 100;
     private final DirtySaveGate gate = new DirtySaveGate();
     private final Object writeLock = new Object();
     private TaskRunner runner;
@@ -354,6 +357,7 @@ final class JdbcPlayerData implements PlayerData {
         if (uuid == null || closed) {
             return;
         }
+        int token = bump(uuid);
         try {
             PlayerRecord pending = cache.get(uuid);
             if (pending != null && dirtyGen.containsKey(uuid)) {
@@ -362,22 +366,11 @@ final class JdbcPlayerData implements PlayerData {
                 }
             }
             int claim = repository.claimPlayer(uuid);
-            int waits = 0;
-            while (claim < 0 && waits < 8) {
-                waits++;
-                try {
-                    Thread.sleep(40L);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                claim = repository.claimPlayer(uuid);
+            if (still(uuid, token)) {
+                applyLoaded(uuid);
             }
-            PlayerRecord loaded = repository.loadOne(uuid);
-            if (loaded != null) {
-                cache.put(uuid, loaded);
-                baseline.put(uuid, loaded.copy());
-                dirtyGen.remove(uuid);
+            if (claim < 0 && runner != null) {
+                tasks().runAsync(() -> claimLater(uuid, token));
             }
         } catch (SQLException ex) {
             plugin.getLogger().warning("Could not refresh " + uuid + ": " + ex.getMessage());
@@ -389,19 +382,16 @@ final class JdbcPlayerData implements PlayerData {
         if (uuid == null || closed) {
             return;
         }
+        int token = bump(uuid);
         PlayerRecord record = cache.get(uuid);
+        PlayerRecord copy = record == null ? null : record.copy();
         pending.cancel();
         pending = TaskRunner.Cancellable.NONE;
-        synchronized (writeLock) {
-            try {
-                if (record != null) {
-                    persist(List.of(record.copy()));
-                }
-                repository.release(uuid);
-                dirtyGen.remove(uuid);
-            } catch (SQLException ex) {
-                plugin.getLogger().warning("Could not hand off " + uuid + ": " + ex.getMessage());
-            }
+        Runnable work = () -> finishHandoff(uuid, token, copy);
+        if (runner != null) {
+            tasks().runAsync(work);
+        } else {
+            work.run();
         }
     }
 
@@ -431,15 +421,11 @@ final class JdbcPlayerData implements PlayerData {
             return;
         }
         try {
-            for (PlayerRecord loaded : repository.loadAll()) {
-                if (online != null && online.contains(loaded.id())) {
-                    continue;
-                }
-                if (dirtyGen.containsKey(loaded.id())) {
-                    continue;
-                }
-                cache.put(loaded.id(), loaded);
-                baseline.put(loaded.id(), loaded.copy());
+            for (KillEntry row : repository.topKills(BOARD_LIMIT)) {
+                mergeBoard(row.id(), boardName(row.id(), row.name()), row.kills(), -1L, online);
+            }
+            for (DamageEntry row : repository.topDamage(BOARD_LIMIT)) {
+                mergeBoard(row.id(), boardName(row.id(), row.name()), -1, row.hundredths(), online);
             }
         } catch (SQLException ex) {
             plugin.getLogger().warning("Could not refresh shared stats: " + ex.getMessage());
@@ -471,6 +457,7 @@ final class JdbcPlayerData implements PlayerData {
         gate.clear();
         List<PlayerRecord> snapshot = snapshot(new HashMap<>());
         synchronized (writeLock) {
+            presence.clear();
             latestGeneration++;
             try {
                 persist(snapshot);
@@ -479,6 +466,92 @@ final class JdbcPlayerData implements PlayerData {
                 plugin.getLogger().severe("Could not save the SQL store during shutdown: " + ex.getMessage());
             }
         }
+    }
+
+    private int bump(UUID uuid) {
+        return presence.merge(uuid, 1, (current, ignored) -> current >= Integer.MAX_VALUE ? 1 : current + 1);
+    }
+
+    private boolean still(UUID uuid, int token) {
+        return Integer.valueOf(token).equals(presence.get(uuid));
+    }
+
+    private void claimLater(UUID uuid, int token) {
+        for (int attempt = 1; attempt <= 8; attempt++) {
+            if (closed || !still(uuid, token)) {
+                return;
+            }
+            try {
+                Thread.sleep(40L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            synchronized (writeLock) {
+                if (closed || !still(uuid, token)) {
+                    return;
+                }
+                try {
+                    int claim = repository.claimPlayer(uuid);
+                    if (claim < 0 && attempt < 8) {
+                        continue;
+                    }
+                    if (dirtyGen.containsKey(uuid)) {
+                        return;
+                    }
+                    applyLoaded(uuid);
+                    return;
+                } catch (SQLException ex) {
+                    plugin.getLogger().warning("Could not refresh " + uuid + ": " + ex.getMessage());
+                    return;
+                }
+            }
+        }
+    }
+
+    private void finishHandoff(UUID uuid, int token, PlayerRecord copy) {
+        synchronized (writeLock) {
+            if (closed || !still(uuid, token)) {
+                return;
+            }
+            try {
+                if (copy != null) {
+                    persist(List.of(copy));
+                }
+                repository.release(uuid);
+                dirtyGen.remove(uuid);
+                presence.remove(uuid, token);
+            } catch (SQLException ex) {
+                plugin.getLogger().warning("Could not hand off " + uuid + ": " + ex.getMessage());
+            }
+        }
+    }
+
+    private void applyLoaded(UUID uuid) throws SQLException {
+        if (dirtyGen.containsKey(uuid)) {
+            return;
+        }
+        PlayerRecord loaded = repository.loadOne(uuid);
+        if (loaded == null) {
+            return;
+        }
+        cache.put(uuid, loaded);
+        baseline.put(uuid, loaded.copy());
+    }
+
+    private void mergeBoard(UUID id, String name, int kills, long damage, Set<UUID> online) {
+        if (id == null || (online != null && online.contains(id)) || dirtyGen.containsKey(id)) {
+            return;
+        }
+        cache.computeIfAbsent(id, PlayerRecord::new).adoptBoard(name, kills, damage);
+        baseline.computeIfAbsent(id, PlayerRecord::new).adoptBoard(name, kills, damage);
+    }
+
+    private static String boardName(UUID id, String name) {
+        if (name == null || name.isBlank() || name.equals(id.toString().substring(0, 8))) {
+            return null;
+        }
+        return name;
     }
 
     private PlayerRecord record(UUID uuid) {

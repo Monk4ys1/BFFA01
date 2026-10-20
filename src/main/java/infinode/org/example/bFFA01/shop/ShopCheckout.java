@@ -6,6 +6,7 @@ import infinode.org.example.bFFA01.hooks.vault.CurrencyRouter;
 import infinode.org.example.bFFA01.text.TextLines;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.Map;
 
@@ -18,6 +19,7 @@ public final class ShopCheckout {
         BOUGHT,
         OWNED,
         POOR,
+        FULL,
         MISSING
     }
 
@@ -48,13 +50,38 @@ public final class ShopCheckout {
             if (plugin.getKitManager() != null) {
                 plugin.getKitManager().giveKit(player);
             }
-        } else if (player.isOnline()) {
-            player.getInventory().addItem(offer.icon(plugin, ShopOffer.key(plugin), false));
+        } else if (!giveConsumable(player, currency, offer)) {
+            return Result.FULL;
         }
         player.sendMessage(TextLines.render(plugin, "shop-purchased", "&aPurchased %item%!",
                 Map.of("item", offer.legacyName())));
         MatchEvents.purchase(plugin, player, offer.id(), offer.cost(), offer.permanent());
         return Result.BOUGHT;
+    }
+
+    private boolean giveConsumable(Player player, CurrencyRouter currency, ShopOffer offer) {
+        if (!player.isOnline()) {
+            currency.refund(player, offer.cost());
+            return false;
+        }
+        ItemStack icon;
+        Map<Integer, ItemStack> leftover;
+        try {
+            icon = offer.icon(plugin, ShopOffer.key(plugin), false);
+            leftover = player.getInventory().addItem(icon);
+        } catch (RuntimeException ex) {
+            currency.refund(player, offer.cost());
+            player.sendMessage(TextLines.render(plugin, "shop-inventory-full",
+                    "&cYour inventory is full. The coins were returned.", Map.of()));
+            return false;
+        }
+        if (leftover == null || leftover.isEmpty()) {
+            return true;
+        }
+        currency.refund(player, offer.cost());
+        player.sendMessage(TextLines.render(plugin, "shop-inventory-full",
+                "&cYour inventory is full. The coins were returned.", Map.of()));
+        return false;
     }
 
     public static ShopOffer offer(org.bukkit.inventory.ItemStack stack, NamespacedKey key) {

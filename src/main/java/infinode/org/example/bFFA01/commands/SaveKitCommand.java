@@ -34,12 +34,13 @@ public class SaveKitCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player player)) {
             sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
             return true;
         }
-
-        Player player = (Player) sender;
+        if (CommandAccess.deny(plugin, player, "bffa.savekit")) {
+            return true;
+        }
         long now = clock.getAsLong();
         if (cooldown.remainingMillis(player.getUniqueId(), now) > 0L) {
             player.sendMessage(TextLines.render(plugin, "kit-save-cooldown",

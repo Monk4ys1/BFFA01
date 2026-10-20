@@ -235,11 +235,12 @@ public class BuildFFAAdminCommand implements CommandExecutor, TabCompleter {
                 : plugin.getDataManager().cluster();
         int players = snap.players() < 0 ? 0 : snap.players();
         reply(sender, "network-status",
-                "&aServer &e%id% &aon &e%storage%&a. Redis: &e%redis%&a. Instances: &e%servers%&a. Players: &e%players%&a.",
+                "&aServer &e%id% &aon &e%storage%&a. Redis: &e%redis%&a. Messages: &e%seal%&a. Instances: &e%servers%&a. Players: &e%players%&a.",
                 Map.of(
                         "id", link.serverId(),
                         "storage", storage,
                         "redis", link.redisConnected() ? "connected" : "off",
+                        "seal", link.signed() ? "signed" : "open",
                         "servers", Integer.toString(snap.servers()),
                         "players", Integer.toString(players)
                 ));

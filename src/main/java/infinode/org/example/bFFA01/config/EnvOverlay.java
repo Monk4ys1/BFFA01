@@ -36,6 +36,7 @@ public final class EnvOverlay {
         setInt(config, env, "BFFA_REDIS_PORT", "network.redis.port");
         set(config, env, "BFFA_REDIS_PASSWORD", "network.redis.password");
         set(config, env, "BFFA_REDIS_CHANNEL", "network.redis.channel");
+        set(config, env, "BFFA_NETWORK_SECRET", "network.secret");
     }
 
     private static void set(FileConfiguration config, Map<String, String> env, String key, String path) {

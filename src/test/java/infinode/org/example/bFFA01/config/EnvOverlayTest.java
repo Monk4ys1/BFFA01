@@ -26,6 +26,7 @@ class EnvOverlayTest {
                 "BFFA_MYSQL_PASSWORD", "secret",
                 "BFFA_NETWORK", "auto",
                 "BFFA_REDIS_HOST", "redis",
+                "BFFA_NETWORK_SECRET", "cluster-secret",
                 "BFFA_LANGUAGE", "de"
         ));
         assertEquals("mysql", config.getString("storage.type"));
@@ -36,6 +37,8 @@ class EnvOverlayTest {
         assertEquals("auto", config.getString("network.enabled"));
         assertTrue(NetworkSettings.load(config).enabled());
         assertTrue(NetworkSettings.load(config).redis());
+        assertEquals("cluster-secret", NetworkSettings.load(config).secret());
+        assertTrue(NetworkSettings.load(config).signed());
     }
 
     @Test

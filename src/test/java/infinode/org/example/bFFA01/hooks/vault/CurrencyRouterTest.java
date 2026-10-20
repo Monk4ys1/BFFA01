@@ -12,7 +12,10 @@ import java.util.logging.Logger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -87,6 +90,23 @@ class CurrencyRouterTest {
             }
         });
         assertEquals("$12", router.balance(player(id)));
+    }
+
+    @Test
+    void negativeCostDoesNotMoveCoins() {
+        UUID id = UUID.randomUUID();
+        BFFA01 plugin = plugin(new YamlConfiguration());
+        DataManager data = mock(DataManager.class);
+        when(plugin.getDataManager()).thenReturn(data);
+        when(data.getCoins(id)).thenReturn(50);
+        Player player = player(id);
+        CurrencyRouter router = new CurrencyRouter(plugin);
+
+        assertFalse(router.canAfford(player, -5));
+        assertFalse(router.charge(player, -5));
+        assertFalse(router.refund(player, -5));
+        verify(data, never()).removeCoins(any(), anyInt());
+        verify(data, never()).addCoins(any(), anyInt());
     }
 
     @Test

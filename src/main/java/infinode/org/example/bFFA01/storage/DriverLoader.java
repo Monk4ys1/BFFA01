@@ -24,10 +24,25 @@ public final class DriverLoader {
         if (driversDirectory == null || !Files.isDirectory(driversDirectory)) {
             throw new SQLException("No JDBC driver found. SQLite is bundled; MySQL needs a jar in plugins/BFFA01/drivers/.");
         }
+        Path root;
+        try {
+            root = driversDirectory.toRealPath();
+        } catch (Exception ex) {
+            throw new SQLException("Could not read the drivers folder", ex);
+        }
         List<java.net.URL> urls = new ArrayList<>();
-        try (var files = Files.newDirectoryStream(driversDirectory, "*.jar")) {
+        try (var files = Files.newDirectoryStream(root, "*.jar")) {
             for (Path file : files) {
-                urls.add(file.toUri().toURL());
+                Path real;
+                try {
+                    real = file.toRealPath();
+                } catch (Exception ex) {
+                    continue;
+                }
+                if (!real.startsWith(root) || !Files.isRegularFile(real)) {
+                    continue;
+                }
+                urls.add(real.toUri().toURL());
             }
         } catch (Exception ex) {
             throw new SQLException("Could not read the drivers folder", ex);

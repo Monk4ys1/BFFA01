@@ -21,11 +21,17 @@ public class MenuCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
+        String menuName = command == null ? "menu" : command.getName().toLowerCase();
+        String permission = switch (menuName) {
+            case "maps" -> "bffa.maps";
+            case "settings" -> "bffa.settings";
+            default -> "bffa.menu";
+        };
+        if (CommandAccess.refuse(plugin, sender, permission)) {
             return true;
         }
-        String menu = switch (command.getName().toLowerCase()) {
+        Player player = (Player) sender;
+        String menu = switch (menuName) {
             case "maps" -> "maps";
             case "settings" -> "settings";
             default -> "hub";

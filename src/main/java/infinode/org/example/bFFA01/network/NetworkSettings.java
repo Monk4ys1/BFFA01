@@ -17,9 +17,10 @@ public final class NetworkSettings {
     private final int redisPort;
     private final String redisPassword;
     private final String redisChannel;
+    private final String secret;
 
     private NetworkSettings(boolean enabled, int leaderboardSeconds, boolean messenger, String redisHost, int redisPort,
-                            String redisPassword, String redisChannel) {
+                            String redisPassword, String redisChannel, String secret) {
         this.enabled = enabled;
         this.leaderboardSeconds = leaderboardSeconds;
         this.messenger = messenger;
@@ -27,6 +28,7 @@ public final class NetworkSettings {
         this.redisPort = redisPort;
         this.redisPassword = redisPassword;
         this.redisChannel = redisChannel;
+        this.secret = secret;
     }
 
     public static NetworkSettings load(FileConfiguration config) {
@@ -53,7 +55,19 @@ public final class NetworkSettings {
         if (channel == null || channel.isBlank() || channel.length() > 64) {
             channel = "bffa";
         }
-        return new NetworkSettings(enabled, seconds, messenger, host, port, password, channel.trim());
+        String secret = config == null ? "" : config.getString("network.secret", "");
+        return new NetworkSettings(enabled, seconds, messenger, host, port, password, channel.trim(), clipSecret(secret));
+    }
+
+    static String clipSecret(String secret) {
+        if (secret == null) {
+            return "";
+        }
+        String trimmed = secret.trim();
+        if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {
+            return "";
+        }
+        return trimmed.length() > 128 ? trimmed.substring(0, 128) : trimmed;
     }
 
     static boolean enabled(FileConfiguration config) {
@@ -116,5 +130,13 @@ public final class NetworkSettings {
 
     public String redisChannel() {
         return redisChannel;
+    }
+
+    public String secret() {
+        return secret;
+    }
+
+    public boolean signed() {
+        return !secret.isEmpty();
     }
 }

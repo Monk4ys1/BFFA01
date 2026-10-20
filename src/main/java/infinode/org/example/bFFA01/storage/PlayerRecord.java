@@ -187,6 +187,21 @@ public final class PlayerRecord {
         lifeTaken = 0L;
     }
 
+    /**
+     * Copies a leaderboard row onto this record. A negative kills or damage value leaves that field alone.
+     */
+    public synchronized void adoptBoard(String name, int kills, long damageDealt) {
+        if (name != null && !name.isBlank()) {
+            this.name = name.length() > 16 ? name.substring(0, 16) : name;
+        }
+        if (kills >= 0) {
+            this.kills = kills;
+        }
+        if (damageDealt >= 0L) {
+            this.damageDealt = damageDealt;
+        }
+    }
+
     public synchronized void mirrorProfile(String name, int streak, String prefs, Set<String> upgrades, String[] layout) {
         this.name = name == null ? "" : name;
         this.streak = Math.max(0, streak);

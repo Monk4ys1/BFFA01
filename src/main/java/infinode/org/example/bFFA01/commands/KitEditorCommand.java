@@ -21,13 +21,11 @@ public class KitEditorCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(TextLines.render(plugin, "players-only", "&cOnly players can do that.", Map.of()));
+        if (CommandAccess.refuse(plugin, sender, "bffa.kit")) {
             return true;
         }
 
-        Player player = (Player) sender;
-        openEditor(player);
+        openEditor((Player) sender);
 
         return true;
     }

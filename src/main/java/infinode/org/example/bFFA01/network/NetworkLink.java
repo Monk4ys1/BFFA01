@@ -50,10 +50,16 @@ public final class NetworkLink {
                     settings.redisChannel(), this::accept);
             redis.start();
             plugin.getLogger().info("Network Redis channel " + settings.redisChannel() + " on " + serverId() + ".");
+            if (!settings.signed()) {
+                plugin.getLogger().warning("Redis network messages are not signed. Set the same network.secret on every instance.");
+            }
         }
         if (settings.messenger()) {
-            messenger = new PluginMessenger(this::accept);
+            messenger = new PluginMessenger(text -> accept(text, true));
             messenger.enable(plugin);
+            if (!settings.signed()) {
+                plugin.getLogger().warning("bffa:net is ignored until network.secret is set.");
+            }
         }
         ServerScheduler scheduler = plugin.scheduler();
         if (scheduler != null) {
@@ -88,6 +94,10 @@ public final class NetworkLink {
         return link != null && link.connected();
     }
 
+    public boolean signed() {
+        return settings.signed();
+    }
+
     public void publishBoard() {
         if (!settings.enabled()) {
             return;
@@ -108,33 +118,35 @@ public final class NetworkLink {
     }
 
     private void send(String kind, String body) {
-        String text = "1|" + serverId() + "|" + kind + "|" + body + "|" + System.currentTimeMillis();
-        if (text.length() > 240) {
+        long now = System.currentTimeMillis();
+        String text = NetworkSeal.encode(settings.secret(), serverId(), kind, body, now);
+        NetworkSeal.Frame frame = NetworkSeal.decode(settings.secret(), text, now, false);
+        if (frame == null || text.length() > NetworkSeal.MAX_FRAME || !remember(frame)) {
             return;
         }
-        remember(text);
         RedisLink link = redis;
         if (link != null) {
             link.publish(text);
         }
         PluginMessenger channel = messenger;
-        if (channel != null) {
+        if (channel != null && settings.signed()) {
             channel.send(text);
         }
     }
 
     private void accept(String text) {
-        if (text == null || !text.startsWith("1|")) {
+        accept(text, false);
+    }
+
+    private void accept(String text, boolean pluginChannel) {
+        NetworkSeal.Frame frame = NetworkSeal.decode(settings.secret(), text, System.currentTimeMillis(), pluginChannel);
+        if (frame == null || serverId().equals(frame.id()) || !remember(frame)) {
             return;
         }
-        String[] parts = text.split("\\|", 5);
-        if (parts.length < 5 || serverId().equals(parts[1]) || !remember(text)) {
-            return;
-        }
-        if ("board".equals(parts[2])) {
+        if ("board".equals(frame.kind())) {
             pull();
-        } else if ("streak".equals(parts[2])) {
-            announce(parts[3]);
+        } else if ("streak".equals(frame.kind())) {
+            announce(frame.body());
         }
     }
 
@@ -198,13 +210,14 @@ public final class NetworkLink {
         }
     }
 
-    private boolean remember(String text) {
+    private boolean remember(NetworkSeal.Frame frame) {
+        String key = frame.id() + "|" + frame.kind() + "|" + frame.body() + "|" + frame.time();
         synchronized (recent) {
-            if (recent.contains(text)) {
+            if (recent.contains(key)) {
                 return false;
             }
-            recent.addLast(text);
-            while (recent.size() > 64) {
+            recent.addLast(key);
+            while (recent.size() > 256) {
                 recent.removeFirst();
             }
             return true;

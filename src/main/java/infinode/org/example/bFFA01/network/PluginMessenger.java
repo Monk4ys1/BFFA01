@@ -89,7 +89,7 @@ public final class PluginMessenger implements PluginMessageListener {
 
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] data) {
-        if (!CHANNEL.equals(channel) || data == null || messages == null) {
+        if (!CHANNEL.equals(channel) || data == null || data.length == 0 || data.length > 512 || messages == null) {
             return;
         }
         messages.accept(new String(data, StandardCharsets.UTF_8));

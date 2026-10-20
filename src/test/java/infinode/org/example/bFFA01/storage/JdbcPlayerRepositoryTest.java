@@ -6,7 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.sql.DriverManager;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -173,6 +176,55 @@ class JdbcPlayerRepositoryTest {
             assertEquals("once", second.claimInstance("once"));
             assertEquals(0, second.loadAll().size());
         }
+    }
+
+    @Test
+    void leaderboardIndexesAreCreated() throws Exception {
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("idx.db"), tempDir)) {
+            repository.claimInstance("idx");
+        }
+        try (java.sql.Connection connection = DriverManager.getConnection("jdbc:sqlite:" + tempDir.resolve("idx.db").toAbsolutePath());
+             java.sql.ResultSet rows = connection.createStatement().executeQuery(
+                     "SELECT name FROM sqlite_master WHERE type='index'")) {
+            Set<String> names = new HashSet<>();
+            while (rows.next()) {
+                names.add(rows.getString(1));
+            }
+            assertTrue(names.contains("bffa_kills"));
+            assertTrue(names.contains("bffa_damage"));
+        }
+    }
+
+    @Test
+    void topKillsOnAThousandRowsStaysUnderTwoSeconds() throws Exception {
+        try (JdbcPlayerRepository repository = JdbcPlayerRepository.open(sqlite("bench.db"), tempDir)) {
+            long insertStart = System.nanoTime();
+            for (int i = 0; i < 1_000; i++) {
+                repository.applyDelta(new CountDelta(UUID.randomUUID(), i % 50, 0, 0, 0, i, 0L, 0L, 0L));
+            }
+            long insertUs = (System.nanoTime() - insertStart) / 1_000L;
+            long start = System.nanoTime();
+            for (int i = 0; i < 20; i++) {
+                assertEquals(10, repository.topKills(10).size());
+            }
+            long queryUs = (System.nanoTime() - start) / 1_000L;
+            System.out.println("BENCH sqlite insert 1000 deltas: " + (insertUs / 1000) + " ms; topKills(10) x20: " + queryUs + " us");
+            assertTrue(queryUs < 2_000_000L, "topKills took " + queryUs + " us");
+        }
+    }
+
+    @Test
+    void boardNumbersReplaceKillsWithoutClearingDeaths() {
+        PlayerRecord record = new PlayerRecord(UUID.randomUUID());
+        record.addDeath();
+        record.addCoins(4);
+        record.adoptBoard("Notch", 9, -1L);
+        record.adoptBoard(null, -1, 250L);
+        assertEquals("Notch", record.name());
+        assertEquals(9, record.kills());
+        assertEquals(1, record.deaths());
+        assertEquals(4, record.coins());
+        assertEquals(250L, record.damageDealt());
     }
 
     private StorageSettings sqlite(String file) {

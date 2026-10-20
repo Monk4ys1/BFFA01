@@ -399,6 +399,7 @@ public final class JdbcPlayerRepository implements AutoCloseable {
             createTable();
             InstanceRegistry.ensure(connection, sqlite);
             migrate();
+            indexes();
         } finally {
             if (locked) {
                 try (Statement statement = connection.createStatement()) {
@@ -531,6 +532,21 @@ public final class JdbcPlayerRepository implements AutoCloseable {
         }
     }
 
+    private void indexes() throws SQLException {
+        ensureIndex("bffa_kills", "kills, player_name");
+        ensureIndex("bffa_damage", "damage_dealt, player_name");
+    }
+
+    private void ensureIndex(String name, String columns) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("CREATE INDEX " + name + " ON bffa_player (" + columns + ")");
+        } catch (SQLException ex) {
+            if (!duplicateIndex(ex)) {
+                throw ex;
+            }
+        }
+    }
+
     private Set<String> columns() throws SQLException {
         Set<String> names = new HashSet<>();
         String sql = sqlite ? "PRAGMA table_info(bffa_player)" : "SHOW COLUMNS FROM bffa_player";
@@ -644,5 +660,17 @@ public final class JdbcPlayerRepository implements AutoCloseable {
         }
         String lower = message.toLowerCase(Locale.ROOT);
         return lower.contains("duplicate column") || lower.contains("duplicate column name");
+    }
+
+    private static boolean duplicateIndex(SQLException ex) {
+        if (ex.getErrorCode() == 1061) {
+            return true;
+        }
+        String message = ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase(Locale.ROOT);
+        return lower.contains("already exists") || lower.contains("duplicate key name");
     }
 }

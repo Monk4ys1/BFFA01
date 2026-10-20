@@ -113,6 +113,7 @@ Umgebungsvariablen liegen nur im Speicher über der Datei, das Image bleibt glei
 | `BFFA_NETWORK` | `auto`, `true` oder `false` |
 | `BFFA_SERVER_ID` | Feste Id dieser Replica |
 | `BFFA_REDIS_HOST`, `BFFA_REDIS_PORT`, `BFFA_REDIS_PASSWORD`, `BFFA_REDIS_CHANNEL` | Optionales Redis |
+| `BFFA_NETWORK_SECRET` | Gemeinsames HMAC-Geheimnis, nicht ins Image schreiben |
 | `BFFA_LANGUAGE` | `en` oder `de` |
 
 Schema-Anlage nimmt auf MySQL `GET_LOCK('bffa_schema')`. `CREATE TABLE IF NOT EXISTS` und `ALTER` sind wiederholbar, auch wenn viele Pods gleichzeitig starten. Kills, Tode, Münzen, Schaden und Assists werden addiert (`spalte = spalte + änderung`). Kit, Name, Streak und Anzeige-Einstellungen schreibt nur die Instanz mit der Lease. Die Lease läuft ab, wenn der Heartbeat der haltenden Instanz älter als 15 Sekunden ist, auch ohne sauberes Stoppen. Beim Join wird die Zeile neu gelesen, beim Quit geschrieben und freigegeben.
@@ -120,6 +121,8 @@ Schema-Anlage nimmt auf MySQL `GET_LOCK('bffa_schema')`. `CREATE TABLE IF NOT EX
 Discord, Kartenwechsel, Hologramme, Scoreboard und bStats bleiben an der Instanz, auf der das Ereignis passiert. Ein Kill erzeugt einen Webhook, nicht einen pro Replica. Streak-Nachrichten über Redis und den Plugin-Kanal `bffa:net` werden pro Prozess einmal angezeigt. bStats zählt jeden Prozess, weil jeder Prozess ein Server ist. Die Rangliste im Speicher wird lokal neu geladen.
 
 Fällt MySQL beim Start aus, hält das Plugin die Stats in `mysql-buffer.yml` und addiert sie auf die gemeinsamen Zeilen, sobald die Datenbank da ist. Redis verbindet sich im Hintergrund neu. Ein kurzer Ausfall danach wiederholt Schreibvorgänge mit wachsendem Abstand.
+
+Nachrichten zwischen Instanzen sind signiert, wenn `network.secret` oder `BFFA_NETWORK_SECRET` auf jeder Replica gleich ist. Ohne Geheimnis verwirft das Plugin den Kanal `bffa:net`, weil ein Spieler ihn fälschen kann. Redis nimmt dann weiter unsignierte Nachrichten an und warnt einmal beim Start. `/bffa network` zeigt `signed` oder `open`, nie das Geheimnis, das Redis-Passwort oder eine Webhook-URL.
 
 `/bffa network` zeigt die eigene Id, den Speicher, Redis und die lebenden Instanzen. Platzhalter: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
 
@@ -215,11 +218,13 @@ Live numbers use a TextDisplay when the server has one, otherwise a marker armor
 
 One YAML or SQLite server needs no network settings. `network.enabled: auto` (the shipped default) turns the cluster on when `storage.type` is `mysql` or `mariadb`. An existing file with `enabled: false` stays local. Copies of one image share the file; environment variables override it in memory:
 
-`BFFA_STORAGE_TYPE`, `BFFA_MYSQL_HOST`, `BFFA_MYSQL_PORT`, `BFFA_MYSQL_DATABASE`, `BFFA_MYSQL_USERNAME`, `BFFA_MYSQL_PASSWORD`, `BFFA_MYSQL_PARAMETERS`, `BFFA_NETWORK` (`auto`, `true`, `false`), `BFFA_SERVER_ID`, `BFFA_REDIS_HOST`, `BFFA_REDIS_PORT`, `BFFA_REDIS_PASSWORD`, `BFFA_REDIS_CHANNEL`, `BFFA_LANGUAGE`.
+`BFFA_STORAGE_TYPE`, `BFFA_MYSQL_HOST`, `BFFA_MYSQL_PORT`, `BFFA_MYSQL_DATABASE`, `BFFA_MYSQL_USERNAME`, `BFFA_MYSQL_PASSWORD`, `BFFA_MYSQL_PARAMETERS`, `BFFA_NETWORK` (`auto`, `true`, `false`), `BFFA_SERVER_ID`, `BFFA_NETWORK_SECRET`, `BFFA_REDIS_HOST`, `BFFA_REDIS_PORT`, `BFFA_REDIS_PASSWORD`, `BFFA_REDIS_CHANNEL`, `BFFA_LANGUAGE`.
 
 Instance ids are not read from `network.server-id` or `server-id.txt`. The process uses `BFFA_SERVER_ID`, then `POD_NAME` or `HOSTNAME` when that name is specific. If neither variable is set, it uses the operating-system hostname. Otherwise it uses a random id for this boot. If that id is already heartbeating, the process takes a new one. A killed process drops out of `bffa_instance` after 15 seconds, and its player leases can be taken. Schema setup uses `GET_LOCK('bffa_schema')` and idempotent DDL. Kills, deaths, coins, damage, and assists are added with `column = column + delta`. Kit, name, streak, and display settings are written only by the lease holder.
 
 Discord, map rotation, holograms, the sidebar, and bStats stay on the instance where the event happened, so one kill does not fan out to one webhook per replica. bStats still reports every process, because each process is a server. Streak lines published on Redis or plugin channel `bffa:net` are shown once per process. The proxy registers backends itself; this plugin does not talk to Velocity or BungeeCord.
+
+Set the same `network.secret` (or `BFFA_NETWORK_SECRET`) on every replica. Frames then carry an HMAC. With no secret, `bffa:net` is dropped because a player can forge it, and Redis still accepts unsigned messages after one warning. `/bffa network` shows `signed` or `open`. It does not print the secret, the Redis password, or a webhook URL.
 
 If MySQL is down at startup, stats are kept in `mysql-buffer.yml` and added to the shared rows when the database returns. Redis reconnects in the background. `/bffa network` lists live instances. Placeholders: `%bffa_network_servers%`, `%bffa_network_players%`, `%bffa_network_id%`.
 

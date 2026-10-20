@@ -141,6 +141,9 @@ public final class RedisLink {
             return null;
         }
         int count = Integer.parseInt(readLine(in));
+        if (count < 1 || count > 8) {
+            throw new IllegalStateException("array");
+        }
         String type = null;
         String body = null;
         for (int i = 0; i < count; i++) {
@@ -169,6 +172,11 @@ public final class RedisLink {
         if (length < 0) {
             return "";
         }
+        if (length > 8_192) {
+            skip(in, length);
+            readLine(in);
+            throw new IllegalStateException("bulk");
+        }
         byte[] data = in.readNBytes(length);
         readLine(in);
         return new String(data, StandardCharsets.UTF_8);
@@ -180,8 +188,23 @@ public final class RedisLink {
         while ((value = in.read()) >= 0 && value != '\n') {
             if (value != '\r') {
                 line.append((char) value);
+                if (line.length() > 1_024) {
+                    throw new IllegalStateException("line");
+                }
             }
         }
         return line.toString();
+    }
+
+    private static void skip(InputStream in, int length) throws Exception {
+        long left = length;
+        byte[] buf = new byte[1_024];
+        while (left > 0L) {
+            int read = in.read(buf, 0, (int) Math.min(buf.length, left));
+            if (read < 0) {
+                throw new IllegalStateException("closed");
+            }
+            left -= read;
+        }
     }
 }

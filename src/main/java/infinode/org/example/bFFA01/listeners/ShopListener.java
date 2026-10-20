@@ -7,6 +7,7 @@ import infinode.org.example.bFFA01.shop.ShopOffer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 
@@ -32,6 +33,14 @@ public class ShopListener implements Listener {
             return;
         }
         if (event.getClickedInventory() == null || event.getClickedInventory() != top) {
+            return;
+        }
+        ClickType click = event.getClick();
+        if (click != ClickType.LEFT && click != ClickType.RIGHT
+                && click != ClickType.SHIFT_LEFT && click != ClickType.SHIFT_RIGHT) {
+            return;
+        }
+        if (!player.hasPermission("bffa.shop")) {
             return;
         }
 

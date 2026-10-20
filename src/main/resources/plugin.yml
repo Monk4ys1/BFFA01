@@ -19,6 +19,7 @@ commands:
   bffa:
     description: BuildFFA admin command
     usage: "/bffa"
+    permission: bffa.admin
   stats:
     description: View your stats
     usage: "/stats"
