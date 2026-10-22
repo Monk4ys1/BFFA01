@@ -27,7 +27,9 @@ public final class MenuListener implements Listener {
         if (top == null || !(top.getHolder() instanceof MenuHolder holder)) {
             return;
         }
-        event.setCancelled(true);
+        if (MenuClicks.cancels(true)) {
+            event.setCancelled(true);
+        }
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
@@ -35,7 +37,7 @@ public final class MenuListener implements Listener {
             return;
         }
         ClickType click = event.getClick();
-        if (click != ClickType.LEFT && click != ClickType.RIGHT && click != ClickType.SHIFT_LEFT && click != ClickType.SHIFT_RIGHT) {
+        if (!MenuClicks.activates(click)) {
             return;
         }
         if (plugin.presentation() == null) {

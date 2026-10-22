@@ -27,13 +27,16 @@ public final class MenuCatalog {
     private final Map<String, Menu> menus;
     private final List<Category> categories;
     private final List<String> issues;
+    private final boolean confirmPermanent;
 
-    private MenuCatalog(String filler, List<String> frame, Map<String, Menu> menus, List<Category> categories, List<String> issues) {
+    private MenuCatalog(String filler, List<String> frame, Map<String, Menu> menus, List<Category> categories,
+                        List<String> issues, boolean confirmPermanent) {
         this.filler = filler;
         this.frame = frame;
         this.menus = menus;
         this.categories = categories;
         this.issues = issues;
+        this.confirmPermanent = confirmPermanent;
     }
 
     public static MenuCatalog read(String yaml) {
@@ -43,7 +46,7 @@ public final class MenuCatalog {
             config.loadFromString(yaml == null ? "" : yaml);
         } catch (Exception ex) {
             issues.add("unreadable menus.yml");
-            return new MenuCatalog("GRAY_STAINED_GLASS_PANE", List.of(), Map.of(), List.of(), List.copyOf(issues));
+            return new MenuCatalog("GRAY_STAINED_GLASS_PANE", List.of(), Map.of(), List.of(), List.copyOf(issues), true);
         }
         String filler = material(config.getString("filler"), "GRAY_STAINED_GLASS_PANE", "filler", issues);
         List<String> frame = new ArrayList<>();
@@ -68,7 +71,8 @@ public final class MenuCatalog {
             }
         }
         List<Category> categories = categories(config.getConfigurationSection("shop-categories"), menus.get("shop"), issues);
-        return new MenuCatalog(filler, List.copyOf(frame), Map.copyOf(menus), List.copyOf(categories), List.copyOf(issues));
+        boolean confirmPermanent = !config.contains("shop-confirm-permanent") || config.getBoolean("shop-confirm-permanent");
+        return new MenuCatalog(filler, List.copyOf(frame), Map.copyOf(menus), List.copyOf(categories), List.copyOf(issues), confirmPermanent);
     }
 
     public String filler() {
@@ -93,6 +97,11 @@ public final class MenuCatalog {
 
     public List<String> issues() {
         return issues;
+    }
+
+    /** Permanent upgrades ask for a second click. Consumables stay one click. */
+    public boolean confirmPermanent() {
+        return confirmPermanent;
     }
 
     private static Menu menu(String id, ConfigurationSection section, List<String> issues) {

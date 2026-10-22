@@ -72,6 +72,7 @@ public final class BFFA01 extends JavaPlugin {
     private Presentation presentation;
     private CombatTracker combat;
     private DamageFeedback damageFeedback;
+    private volatile int configGeneration;
     private NetworkLink network;
     private BstatsMetrics metrics;
 
@@ -213,7 +214,12 @@ public final class BFFA01 extends JavaPlugin {
         }
     }
 
+    public int configGeneration() {
+        return configGeneration;
+    }
+
     public boolean reloadPluginConfig() {
+        configGeneration++;
         reloadConfig();
         EnvOverlay.apply(getConfig());
         messages = Messages.load(getDataFolder().toPath(), getConfig().getString("language", "en"), getConfig());

@@ -1,5 +1,7 @@
 # Chest menus. Slots are 0-53 in a 6-row chest so Geyser can click them.
 # Left click and right click do the same thing. Titles should stay short.
+# Permanent upgrades ask for a second click. Consumables stay one click.
+shop-confirm-permanent: true
 filler: GRAY_STAINED_GLASS_PANE
 frame:
   - CYAN_STAINED_GLASS_PANE
