@@ -85,6 +85,9 @@ public class GameListener implements Listener {
     private final Map<UUID, Long> lastCombatTime = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> lastDamager = new ConcurrentHashMap<>();
     private final Map<UUID, Boolean> combatFlags = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> boardSeen = new ConcurrentHashMap<>();
+    private final CombatClock combatClock = new CombatClock();
+    private final MapThresholds thresholds = new MapThresholds();
     private static final String COMBAT_LOG_BAN_SOURCE = "BuildFFA System";
 
     public GameListener(BFFA01 plugin) {
@@ -110,13 +113,37 @@ public class GameListener implements Listener {
         }
     }
 
-    private int getMapSetting(String key, int fallbackKey) {
-        String mapName = plugin.getMapManager().getCurrentMap();
-        int fallback = plugin.getConfig().getInt(fallbackKey == 0 ? "default-death-y-level" : "default-safezone-y-level", fallbackKey);
-        if (mapName != null && plugin.getConfig().contains("maps." + mapName + "." + key)) {
-            return plugin.getConfig().getInt("maps." + mapName + "." + key);
+    private int deathY() {
+        String map = currentMap();
+        int stamp = plugin.configGeneration();
+        return thresholds.deathY(map, stamp, () -> readThreshold(map, "death-y-level", "default-death-y-level", 50),
+                () -> readThreshold(map, "safezone-y-level", "default-safezone-y-level", 90));
+    }
+
+    private int safeY() {
+        String map = currentMap();
+        int stamp = plugin.configGeneration();
+        return thresholds.safeY(map, stamp, () -> readThreshold(map, "death-y-level", "default-death-y-level", 50),
+                () -> readThreshold(map, "safezone-y-level", "default-safezone-y-level", 90));
+    }
+
+    private String currentMap() {
+        if (plugin.getMapManager() == null) {
+            return "";
         }
-        return fallback;
+        String map = plugin.getMapManager().getCurrentMap();
+        return map == null ? "" : map;
+    }
+
+    /** A map value wins. Otherwise death and the safezone use their own default keys. */
+    private int readThreshold(String map, String mapKey, String defaultKey, int fallback) {
+        if (plugin.getConfig() == null) {
+            return fallback;
+        }
+        if (!map.isEmpty() && plugin.getConfig().contains("maps." + map + "." + mapKey)) {
+            return plugin.getConfig().getInt("maps." + map + "." + mapKey, fallback);
+        }
+        return plugin.getConfig().getInt(defaultKey, fallback);
     }
 
     private void startActionbarTask() {
@@ -135,7 +162,7 @@ public class GameListener implements Listener {
     }
 
     private boolean isPlayerInCombat(Player player, long now, long pauseMillis) {
-        int safezoneY = getMapSetting("safezone-y-level", 90);
+        int safezoneY = safeY();
         if (player.getLocation().getY() >= safezoneY) {
             return false;
         }
@@ -162,16 +189,20 @@ public class GameListener implements Listener {
 
     private void refreshCombatDisplay(Player player, long now, long pauseMillis) {
         boolean inCombat = isPlayerInCombat(player, now, pauseMillis);
-        combatFlags.put(player.getUniqueId(), inCombat);
+        UUID id = player.getUniqueId();
+        combatFlags.put(id, inCombat);
+        CombatClock.Mark mark = combatClock.note(id, inCombat);
         if (!inCombat) {
-            lastDamager.remove(player.getUniqueId());
+            lastDamager.remove(id);
         }
-        player.setPlayerListName((inCombat ? ChatColor.RED : ChatColor.GREEN) + player.getName());
-        boolean damageLine = plugin.damageFeedback() != null && plugin.damageFeedback().holdsActionBar(player.getUniqueId(), now);
+        if (mark.changed()) {
+            player.setPlayerListName((inCombat ? ChatColor.RED : ChatColor.GREEN) + player.getName());
+        }
+        boolean damageLine = plugin.damageFeedback() != null && plugin.damageFeedback().holdsActionBar(id, now);
         if (damageLine) {
             // The hit line owns the action bar for a moment.
         } else if (inCombat) {
-            Long lastCombat = lastCombatTime.get(player.getUniqueId());
+            Long lastCombat = lastCombatTime.get(id);
             long remainingMillis = pauseMillis - (now - (lastCombat == null ? now : lastCombat));
             String seconds = String.format(Locale.US, "%.1f", remainingMillis / 1000.0);
             String message = TextLines.render(plugin, "combat-actionbar", "&cIn combat: &e%seconds%s",
@@ -184,6 +215,10 @@ public class GameListener implements Listener {
             plugin.presentation().tab(player, false);
         }
 
+        Integer seen = boardSeen.get(id);
+        if (seen != null && !CombatClock.rescan(seen, mark.generation())) {
+            return;
+        }
         Scoreboard board = player.getScoreboard();
         if (board == null) {
             return;
@@ -193,6 +228,7 @@ public class GameListener implements Listener {
         for (Player target : Bukkit.getOnlinePlayers()) {
             CombatTeams.assign(combatTeam, safeTeam, target.getName(), Boolean.TRUE.equals(combatFlags.get(target.getUniqueId())));
         }
+        boardSeen.put(id, mark.generation());
     }
 
     @EventHandler
@@ -236,6 +272,9 @@ public class GameListener implements Listener {
             plugin.presentation().onQuit(player);
         }
         forgetTeams(player, name);
+        combatFlags.remove(player.getUniqueId());
+        boardSeen.remove(player.getUniqueId());
+        combatClock.forget(player.getUniqueId());
 
         long now = System.currentTimeMillis();
         int combatPauseSeconds = plugin.getConfig().getInt("combat-regen-pause", 10);
@@ -374,7 +413,7 @@ public class GameListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        int safezoneY = getMapSetting("safezone-y-level", 90);
+        int safezoneY = safeY();
         if (player.getLocation().getY() >= safezoneY) {
             event.setCancelled(true);
             return;
@@ -444,7 +483,7 @@ public class GameListener implements Listener {
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return;
         }
-        int safeY = getMapSetting("death-y-level", 50);
+        int safeY = deathY();
         Player player = event.getPlayer();
         if (to.getY() < safeY && player.getHealth() > 0 && !player.isDead()) {
             attributeVoid(player);
@@ -463,7 +502,7 @@ public class GameListener implements Listener {
             event.setCancelled(true);
             return;
         }
-        int safezoneY = getMapSetting("safezone-y-level", 90);
+        int safezoneY = safeY();
         if (player.getLocation().getY() >= safezoneY) {
             event.setCancelled(true);
         }
@@ -473,7 +512,7 @@ public class GameListener implements Listener {
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         if (event.getEntity() instanceof Player victim) {
             Player damager = attacker(event.getDamager());
-            int safezoneY = getMapSetting("safezone-y-level", 90);
+            int safezoneY = safeY();
             if (victim.getLocation().getY() >= safezoneY) {
                 return;
             }
@@ -751,7 +790,7 @@ public class GameListener implements Listener {
         }
 
         if (event.getWhoClicked() instanceof Player player) {
-            int safezoneY = getMapSetting("safezone-y-level", 90);
+            int safezoneY = safeY();
             if (player.getLocation().getY() < safezoneY) {
                 event.setCancelled(true);
             }
@@ -808,7 +847,7 @@ public class GameListener implements Listener {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
-        int safezoneY = getMapSetting("safezone-y-level", 90);
+        int safezoneY = safeY();
         if (player.getLocation().getY() >= safezoneY) {
             return;
         }

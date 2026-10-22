@@ -30,7 +30,8 @@ public final class MenuModel {
         this.plugin = ui.plugin();
     }
 
-    public MenuView build(org.bukkit.entity.Player player, String id, int page, String arg, List<String> kit, int selected) {
+    public MenuView build(org.bukkit.entity.Player player, String id, int page, String arg, List<String> kit, int selected,
+                          String confirmId) {
         if (player == null || id == null) {
             return null;
         }
@@ -60,7 +61,7 @@ public final class MenuModel {
         List<String> layout = kit;
         int picked = selected;
         if ("shop".equals(id)) {
-            shop(controls, body, menu, shown, mode, player);
+            shop(controls, body, menu, shown, mode, player, confirmId);
         } else if ("kit".equals(id)) {
             layout = kit(controls, menu, player, kit, selected);
             picked = selected;
@@ -81,7 +82,7 @@ public final class MenuModel {
     }
 
     private void shop(List<MenuView.Control> controls, List<String> body, MenuCatalog.Menu menu, int page, String mode,
-                      org.bukkit.entity.Player player) {
+                      org.bukkit.entity.Player player, String confirmId) {
         if (mode.isEmpty() || "root".equals(mode)) {
             for (MenuCatalog.Category category : ui.catalog().categories()) {
                 if (category.slot() < 0 || category.slot() >= menu.size()) {
@@ -100,8 +101,12 @@ public final class MenuModel {
             boolean owned = offer.permanent() && plugin.getDataManager() != null
                     && plugin.getDataManager().hasUpgrade(player.getUniqueId(), offer.id());
             String name = offerName(offer);
+            boolean armed = confirmId != null && confirmId.equals(offer.id());
             List<String> lore = offerLore(offer, owned);
-            add(controls, body, menu.contentSlots().get(i), "buy:" + offer.id(), offer.material().name(), name, lore, owned);
+            if (armed && !owned) {
+                lore.add(confirmLine());
+            }
+            add(controls, body, menu.contentSlots().get(i), "buy:" + offer.id(), offer.material().name(), name, lore, owned || armed);
         }
     }
 
@@ -284,6 +289,13 @@ public final class MenuModel {
         if (!control.clickable() && body != null && !plain.isBlank()) {
             body.add(plain);
         }
+    }
+
+    private String confirmLine() {
+        if (plugin.getMessages() == null) {
+            return "Click again to buy";
+        }
+        return plugin.getMessages().render("shop-confirm", java.util.Map.of());
     }
 
     private String offerName(ShopOffer offer) {

@@ -37,7 +37,7 @@ class MenuCatalogTest {
             "menu-maps-current", "menu-maps-votes", "menu-maps-click", "menu-maps-voted", "menu-map-name",
             "menu-stats-empty", "menu-stats-rank", "menu-stats-rank-lore", "menu-state-on", "menu-state-off",
             "menu-effect-none", "menu-effect-totem", "menu-effect-flame", "menu-effect-heart", "menu-effect-crit",
-            "menu-effect-enchant", "menu-effect-note", "vote-cast", "vote-changed", "tab-header-1", "tab-header-2",
+            "menu-effect-enchant", "menu-effect-note", "shop-confirm", "vote-cast", "vote-changed", "tab-header-1", "tab-header-2",
             "tab-footer-1", "tab-footer-2", "actionbar-idle", "bossbar-title", "title-kill", "title-kill-sub",
             "title-death", "title-death-sub", "title-streak", "title-streak-sub", "title-map", "title-map-sub",
             "title-map-soon", "title-map-soon-sub", "title-first-join", "title-first-join-sub", "first-join-1",

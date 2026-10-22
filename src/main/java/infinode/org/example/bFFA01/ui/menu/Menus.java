@@ -4,6 +4,7 @@ import infinode.org.example.bFFA01.BFFA01;
 import infinode.org.example.bFFA01.compat.Enchantments;
 import infinode.org.example.bFFA01.hooks.bedrock.BedrockForms;
 import infinode.org.example.bFFA01.shop.ShopCheckout;
+import infinode.org.example.bFFA01.shop.ShopConfirm;
 import infinode.org.example.bFFA01.shop.ShopOffer;
 import infinode.org.example.bFFA01.text.MiniText;
 import infinode.org.example.bFFA01.text.TextLines;
@@ -19,6 +20,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Opens the shared menu model as a chest on Java and a Floodgate form on Bedrock.
@@ -32,6 +35,8 @@ public final class Menus {
     private final MenuModel model;
     private final ShopCheckout checkout;
     private final KeyedCooldown kitCooldown = new KeyedCooldown(KIT_COOLDOWN_NANOS);
+    /** category, offer id. Permanent upgrades wait for a second click on the same row. */
+    private final java.util.Map<UUID, String> confirming = new ConcurrentHashMap<>();
 
     public Menus(Presentation ui) {
         this.ui = ui;
@@ -63,7 +68,8 @@ public final class Menus {
         if (player == null || id == null) {
             return false;
         }
-        MenuView view = model.build(player, id, page, arg, kit, selected);
+        String confirmId = confirmId(player, id, arg);
+        MenuView view = model.build(player, id, page, arg, kit, selected, confirmId);
         if (view == null) {
             player.sendMessage(ui.line(player, "menu-missing", java.util.Map.of()));
             return false;
@@ -140,6 +146,14 @@ public final class Menus {
         }
         if (action.startsWith("buy:")) {
             ShopOffer offer = ShopOffer.byId(action.substring(4));
+            if (offer != null && ShopConfirm.arm(offer.permanent(), ui.catalog().confirmPermanent(), owned(player, offer),
+                    pendingOffer(player, arg), offer.id())) {
+                confirming.put(player.getUniqueId(), (arg == null ? "" : arg) + "\n" + offer.id());
+                ui.sound(player, "click");
+                open(player, "shop", page, arg, null, -1, false);
+                return;
+            }
+            confirming.remove(player.getUniqueId());
             ShopCheckout.Result result = checkout.buy(player, offer);
             if (result == ShopCheckout.Result.BOUGHT && offer != null && offer.permanent()) {
                 ui.sound(player, "buy");
@@ -263,6 +277,37 @@ public final class Menus {
         ui.preferences().effect(player.getUniqueId(), next);
         ui.sound(player, "click");
         open(player, "settings", 0, "", null, -1, false);
+    }
+
+    private String confirmId(Player player, String id, String arg) {
+        if (!"shop".equals(id)) {
+            confirming.remove(player.getUniqueId());
+            return "";
+        }
+        return pendingOffer(player, arg);
+    }
+
+    private String pendingOffer(Player player, String arg) {
+        String pending = confirming.get(player.getUniqueId());
+        if (pending == null) {
+            return "";
+        }
+        int split = pending.indexOf('\n');
+        if (split < 0) {
+            confirming.remove(player.getUniqueId());
+            return "";
+        }
+        String category = pending.substring(0, split);
+        if (!category.equals(arg == null ? "" : arg)) {
+            confirming.remove(player.getUniqueId());
+            return "";
+        }
+        return pending.substring(split + 1);
+    }
+
+    private boolean owned(Player player, ShopOffer offer) {
+        return offer.permanent() && plugin.getDataManager() != null
+                && plugin.getDataManager().hasUpgrade(player.getUniqueId(), offer.id());
     }
 
     private void background(Inventory inventory, MenuView view) {
